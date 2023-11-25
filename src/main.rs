@@ -1,11 +1,13 @@
-use std::env;
+use std::{env, sync::Arc};
 
 use serenity::{client::Client, framework::StandardFramework, prelude::GatewayIntents};
 
 use songbird::{driver::DecodeMode, Config, SerenityInit};
+use tokio::sync::Mutex;
 
 mod commands;
 mod events;
+mod player;
 mod voice;
 
 #[tokio::main]
@@ -14,7 +16,7 @@ async fn main() {
     dotenv::dotenv().expect("Failed to load .env file");
 
     // Configure the client with your Discord bot token in the environment.
-    let token = env::var("DISCORD_TOKEN").expect("Expected a token in the environment");
+    let token = env::var("DISCORD_TOKEN").expect("Expected discord token in the environment");
 
     let framework = StandardFramework::new()
         .configure(|c| c.prefix("/"))
@@ -27,12 +29,22 @@ async fn main() {
     // read the audio data that other people are sending us!
     let songbird_config = Config::default().decode_mode(DecodeMode::Decode);
 
+    let player = Arc::new(Mutex::new(
+        player::SpotifyPlayer::new(
+            env::var("SPOTIFY_USERNAME").expect("Expected spotify username in the environment"),
+            env::var("SPOTIFY_PASSWD").expect("Expected spotify password in the environment"),
+            None,
+        )
+        .await,
+    ));
+
     let mut client = Client::builder(&token, intents)
         .event_handler(events::Handler)
         .framework(framework)
+        .type_map_insert::<player::SpotifyPlayerKey>(player)
         .register_songbird_from_config(songbird_config)
         .await
-        .expect("Err creating client");
+        .expect("Failed to create discord client");
 
     let _ = client
         .start()

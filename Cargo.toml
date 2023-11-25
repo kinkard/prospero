@@ -8,10 +8,14 @@ authors = ["Stepan Kizim <stsiapan.kizim@gmail.com>"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-dotenv = "0.15.0"
+dotenv = "0.15"
+tokio = { version = "1", features = ["rt-multi-thread"] }
+# Discord dependencies
 serenity = { version = "0.11", default-features = false, features = [
   "cache", "standard_framework", "voice", "rustls_backend"
 ] }
-# symphonia = { features = ["aac", "mp3", "isomp4", "alac"], version = "0.5.2" }
 songbird = "0.3"
-tokio = { version = "1", features = ["rt-multi-thread"] }
+# Spotify dependencies
+librespot = {version = "0.4", default-features = false}
+byteorder = "1.4"
+rubato = "0.12"
