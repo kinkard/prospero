@@ -7,6 +7,18 @@ Features:
 - Play music from Spotify (requires a Spotify account).
 - Generate a brief overview of the game session using automatic speech recognition from OpenAI's Whisper.
 
+## Build and run
+
+The following env variables (either via set or via `.env` file) sould be set:
+
+- DISCORD_TOKEN
+- SPOTIFY_USERNAME
+- SPOTIFY_PASSWD
+
+```sh
+cargo run --release
+```
+
 ## License
 
 All code in this project is dual-licensed under either:

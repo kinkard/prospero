@@ -13,7 +13,9 @@ mod voice;
 #[tokio::main]
 async fn main() {
     // Load env varialbes from .env is any
-    dotenv::dotenv().expect("Failed to load .env file");
+    if let Err(err) = dotenv::dotenv() {
+        println!("Skipping .env file because of {err}");
+    }
 
     // Configure the client with your Discord bot token in the environment.
     let token = env::var("DISCORD_TOKEN").expect("Expected discord token in the environment");
