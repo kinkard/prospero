@@ -15,10 +15,11 @@ impl Receiver {
     }
 
     pub(crate) fn subscribe(driver: &mut Driver) {
-        driver.add_global_event(CoreEvent::SpeakingStateUpdate.into(), Self::new());
-        driver.add_global_event(CoreEvent::SpeakingUpdate.into(), Self::new());
-        driver.add_global_event(CoreEvent::VoicePacket.into(), Self::new());
-        driver.add_global_event(CoreEvent::RtcpPacket.into(), Self::new());
+        // todo: enable it back to listen what people saying
+        // driver.add_global_event(CoreEvent::SpeakingStateUpdate.into(), Self::new());
+        // driver.add_global_event(CoreEvent::SpeakingUpdate.into(), Self::new());
+        // driver.add_global_event(CoreEvent::VoicePacket.into(), Self::new());
+        // driver.add_global_event(CoreEvent::RtcpPacket.into(), Self::new());
         driver.add_global_event(CoreEvent::ClientDisconnect.into(), Self::new());
     }
 }
