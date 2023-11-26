@@ -43,7 +43,6 @@ pub(crate) async fn get(ctx: &Context) -> Option<Arc<SpotifyPlayer>> {
 /// A wrapper around librespot entities
 pub(crate) struct SpotifyPlayer {
     /// Connection session to Spotify
-    #[allow(dead_code)] // we might need it later to get track info and etc.
     session: Session,
     /// Object to control player, e.g. spirc.shutdown()
     spirc: Spirc,
@@ -90,7 +89,7 @@ impl SpotifyPlayer {
         };
         let (spirc, task) = Spirc::new(spirc_config, session.clone(), player, mixer);
 
-        // Task that processes communication with the Spotify.
+        // Task that processes communication with Spotify control device like desktop, mobile or web UI.
         // It will shutdown once `spirc.shutdown()` is called.
         tokio::spawn(async {
             task.await;
@@ -118,6 +117,15 @@ impl SpotifyPlayer {
 
     pub(crate) fn stop(&self) {
         self.spirc.pause();
+    }
+}
+
+impl Drop for SpotifyPlayer {
+    fn drop(&mut self) {
+        // Notify that we are done with this session
+        self.session.shutdown();
+        // Stop task we've created in the `new()`
+        self.spirc.shutdown();
     }
 }
 
