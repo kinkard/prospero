@@ -45,8 +45,7 @@ async fn join(ctx: &Context, msg: &Message) -> CommandResult {
             .await
             .expect("Spotify Player should be placed in at initialisation");
 
-        // todo: actually we know player bitrate, so we should use defined value here
-        vc.set_bitrate(songbird::driver::Bitrate::Auto);
+        vc.set_bitrate(songbird::driver::Bitrate::Max);
         vc.play_only_source(player.audio_source());
     }
 
