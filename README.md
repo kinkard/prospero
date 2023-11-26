@@ -1,11 +1,9 @@
 # About
 
-**Prospero** is a Discord bot designed for online tabletop sessions, such as DnD or Blades in the Dark.
-
 Features:
 
-- Play music from Spotify (requires a Spotify account).
-- Generate a brief overview of the game session using automatic speech recognition from OpenAI's Whisper.
+- Play music from Spotify (requires a Spotify Premium account).
+- Generate a brief overview of what people talked about using automatic speech recognition from OpenAI's Whisper and ChatGPT (to be implemented).
 
 ## Build and run
 
