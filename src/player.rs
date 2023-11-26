@@ -70,7 +70,8 @@ impl SpotifyPlayer {
 
         let (player, event_channel) = Player::new(
             PlayerConfig {
-                bitrate: Bitrate::Bitrate320,
+                // Anyway discord reduces bitrate to 96k, so there is no point to pull more data
+                bitrate: Bitrate::Bitrate96,
                 ..Default::default()
             },
             session.clone(),

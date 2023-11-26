@@ -45,7 +45,8 @@ async fn join(ctx: &Context, msg: &Message) -> CommandResult {
             .await
             .expect("Spotify Player should be placed in at initialisation");
 
-        vc.set_bitrate(songbird::driver::Bitrate::Max);
+        // 96k is a default Discord bitrate in guilds without nitro and we pull Spotify with 96k
+        vc.set_bitrate(songbird::driver::Bitrate::BitsPerSecond(96_000));
         vc.play_only_source(player.audio_source());
     }
 
