@@ -3,7 +3,6 @@ use std::{env, sync::Arc};
 use serenity::{client::Client, framework::StandardFramework, prelude::GatewayIntents};
 
 use songbird::{driver::DecodeMode, Config, SerenityInit};
-use tokio::sync::Mutex;
 
 mod commands;
 mod events;
@@ -31,14 +30,14 @@ async fn main() {
     // read the audio data that other people are sending us!
     let songbird_config = Config::default().decode_mode(DecodeMode::Decode);
 
-    let player = Arc::new(Mutex::new(
+    let player = Arc::new(
         player::SpotifyPlayer::new(
             env::var("SPOTIFY_USERNAME").expect("Expected spotify username in the environment"),
             env::var("SPOTIFY_PASSWD").expect("Expected spotify password in the environment"),
-            None,
         )
-        .await,
-    ));
+        .await
+        .expect("Failed to create spotify player"),
+    );
 
     let mut client = Client::builder(&token, intents)
         .event_handler(events::Handler)

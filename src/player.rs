@@ -1,7 +1,6 @@
 use librespot::connect::spirc::Spirc;
 use librespot::core::{
     authentication::Credentials,
-    cache::Cache,
     config::{ConnectConfig, DeviceType, SessionConfig},
     session::Session,
 };
@@ -14,11 +13,12 @@ use librespot::playback::{
     decoder::AudioPacket,
     mixer::softmixer::SoftMixer,
     mixer::{Mixer, MixerConfig},
-    player::{Player, PlayerEventChannel},
+    player::Player,
 };
 
 use serenity::client::Context;
 use serenity::prelude::TypeMapKey;
+use songbird::input::{self, Input};
 
 use std::clone::Clone;
 use std::sync::{
@@ -31,29 +31,103 @@ use byteorder::{ByteOrder, LittleEndian};
 use rubato::{FftFixedInOut, Resampler};
 use songbird::input::reader::MediaSource;
 
+/// Key to store SpotifyPlayer in the serenity context
 pub(crate) struct SpotifyPlayerKey;
 
 impl TypeMapKey for SpotifyPlayerKey {
-    type Value = Arc<tokio::sync::Mutex<SpotifyPlayer>>;
+    type Value = Arc<SpotifyPlayer>;
 }
 
-pub(crate) async fn get(ctx: &Context) -> Option<Arc<tokio::sync::Mutex<SpotifyPlayer>>> {
+pub(crate) async fn get(ctx: &Context) -> Option<Arc<SpotifyPlayer>> {
     let data = ctx.data.read().await;
     data.get::<SpotifyPlayerKey>().cloned()
 }
 
+/// A wrapper around librespot entities
 pub(crate) struct SpotifyPlayer {
-    player_config: PlayerConfig,
-    pub(crate) emitted_sink: EmittedSink,
-    pub(crate) session: Session,
-    pub(crate) spirc: Option<Box<Spirc>>,
-    pub(crate) event_channel: Option<Arc<tokio::sync::Mutex<PlayerEventChannel>>>,
-    mixer: Box<SoftMixer>,
+    /// Connection session to Spotify
+    #[allow(dead_code)] // we might need it later to get track info and etc.
+    session: Session,
+    /// Object to control player, e.g. spirc.shutdown()
+    spirc: Spirc,
+    /// Audio channel that should be outputed to the discord voice channel
+    emitted_sink: EmittedSink,
+}
+
+impl SpotifyPlayer {
+    pub(crate) async fn new(username: String, password: String) -> Result<SpotifyPlayer, String> {
+        let (session, _) = Session::connect(
+            SessionConfig::default(),
+            Credentials::with_password(username, password),
+            None, // todo: add a cache for audio files with some reasonable limit
+            false,
+        )
+        .await
+        .map_err(|err| format!("Failed to establish session with error {err:?}"))?;
+
+        let mixer = Box::new(SoftMixer::open(MixerConfig {
+            volume_ctrl: VolumeCtrl::Linear,
+            ..MixerConfig::default()
+        }));
+
+        let emitted_sink = EmittedSink::new();
+        let cloned_sink = emitted_sink.clone();
+
+        let (player, event_channel) = Player::new(
+            PlayerConfig {
+                bitrate: Bitrate::Bitrate320,
+                ..Default::default()
+            },
+            session.clone(),
+            mixer.get_soft_volume(),
+            move || Box::new(cloned_sink),
+        );
+        // Just drop it as we don't need player events for now
+        drop(event_channel);
+
+        let spirc_config = ConnectConfig {
+            name: "Prospero".to_string(),
+            device_type: DeviceType::AudioDongle,
+            initial_volume: None,
+            has_volume_ctrl: true,
+            autoplay: false,
+        };
+        let (spirc, task) = Spirc::new(spirc_config, session.clone(), player, mixer);
+
+        // Task that processes communication with the Spotify.
+        // It will shutdown once `spirc.shutdown()` is called.
+        tokio::spawn(async {
+            task.await;
+        });
+
+        Ok(SpotifyPlayer {
+            session,
+            spirc,
+            emitted_sink,
+        })
+    }
+
+    pub(crate) fn audio_source(&self) -> Input {
+        let mut decoder = input::codec::OpusDecoderState::new().unwrap();
+        decoder.allow_passthrough = false;
+
+        input::Input::new(
+            true,
+            input::reader::Reader::Extension(Box::new(self.emitted_sink.clone())),
+            input::codec::Codec::FloatPcm,
+            input::Container::Raw,
+            None,
+        )
+    }
+
+    pub(crate) fn stop(&self) {
+        self.spirc.pause();
+    }
 }
 
 pub(crate) struct EmittedSink {
     sender: Arc<SyncSender<[f32; 2]>>,
-    pub(crate) receiver: Arc<Mutex<Receiver<[f32; 2]>>>,
+    receiver: Arc<Mutex<Receiver<[f32; 2]>>>,
     input_buffer: Arc<Mutex<(Vec<f32>, Vec<f32>)>>,
     resampler: Arc<Mutex<FftFixedInOut<f32>>>,
     resampler_input_frames_needed: usize,
@@ -202,106 +276,6 @@ impl Clone for EmittedSink {
             input_buffer: self.input_buffer.clone(),
             resampler: self.resampler.clone(),
             resampler_input_frames_needed: self.resampler_input_frames_needed,
-        }
-    }
-}
-
-impl SpotifyPlayer {
-    pub(crate) async fn new(
-        username: String,
-        password: String,
-        cache_dir: Option<String>,
-    ) -> SpotifyPlayer {
-        let credentials = Credentials::with_password(username, password);
-
-        let session_config = SessionConfig::default();
-
-        // 4 GB
-        let mut cache_limit: u64 = 10;
-        cache_limit = cache_limit.pow(9);
-        cache_limit *= 4;
-
-        let cache = Cache::new(
-            cache_dir.clone(),
-            cache_dir.clone(),
-            cache_dir,
-            Some(cache_limit),
-        )
-        .ok();
-
-        let (session, _) = Session::connect(session_config, credentials, cache, false)
-            .await
-            .expect("Error creating session");
-
-        let player_config = PlayerConfig {
-            bitrate: Bitrate::Bitrate320,
-            ..Default::default()
-        };
-
-        let emitted_sink = EmittedSink::new();
-
-        let cloned_sink = emitted_sink.clone();
-
-        let mixer = Box::new(SoftMixer::open(MixerConfig {
-            volume_ctrl: VolumeCtrl::Linear,
-            ..MixerConfig::default()
-        }));
-
-        let (_player, rx) = Player::new(
-            player_config.clone(),
-            session.clone(),
-            mixer.get_soft_volume(),
-            move || Box::new(cloned_sink),
-        );
-
-        SpotifyPlayer {
-            player_config,
-            emitted_sink,
-            session,
-            spirc: None,
-            event_channel: Some(Arc::new(tokio::sync::Mutex::new(rx))),
-            mixer,
-        }
-    }
-
-    pub(crate) async fn enable_connect(&mut self) {
-        let config = ConnectConfig {
-            name: "Prospero".to_string(),
-            device_type: DeviceType::AudioDongle,
-            initial_volume: None,
-            has_volume_ctrl: true,
-            autoplay: false,
-        };
-
-        let cloned_sink = self.emitted_sink.clone();
-
-        let (player, player_events) = Player::new(
-            self.player_config.clone(),
-            self.session.clone(),
-            self.mixer.get_soft_volume(),
-            move || Box::new(cloned_sink),
-        );
-
-        let cloned_session = self.session.clone();
-
-        let (spirc, task) = Spirc::new(config, cloned_session, player, self.mixer.clone());
-
-        let handle = tokio::runtime::Handle::current();
-        handle.spawn(async {
-            task.await;
-        });
-
-        self.spirc = Some(Box::new(spirc));
-
-        let mut channel_lock = self.event_channel.as_ref().unwrap().lock().await;
-        *channel_lock = player_events;
-    }
-
-    pub(crate) async fn disable_connect(&mut self) {
-        if let Some(spirc) = self.spirc.as_ref() {
-            spirc.shutdown();
-
-            self.event_channel.as_ref().unwrap().lock().await.close();
         }
     }
 }
