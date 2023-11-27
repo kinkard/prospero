@@ -33,7 +33,8 @@ async fn main() {
     let player = Arc::new(
         player::SpotifyPlayer::new(
             env::var("SPOTIFY_USERNAME").expect("Expected spotify username in the environment"),
-            env::var("SPOTIFY_PASSWD").expect("Expected spotify password in the environment"),
+            env::var("SPOTIFY_PASSWD").ok(),
+            env::var("CACHE_LOCATION").ok(),
         )
         .await
         .expect("Failed to create spotify player"),

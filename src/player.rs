@@ -1,4 +1,5 @@
 use librespot::connect::spirc::Spirc;
+use librespot::core::cache::Cache;
 use librespot::core::{
     authentication::Credentials,
     config::{ConnectConfig, DeviceType, SessionConfig},
@@ -21,6 +22,7 @@ use serenity::prelude::TypeMapKey;
 use songbird::input::{self, Input};
 
 use std::clone::Clone;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::{io, mem};
 
@@ -51,15 +53,37 @@ pub(crate) struct SpotifyPlayer {
 }
 
 impl SpotifyPlayer {
-    pub(crate) async fn new(username: String, password: String) -> Result<SpotifyPlayer, String> {
-        let (session, _) = Session::connect(
-            SessionConfig::default(),
-            Credentials::with_password(username, password),
-            None, // todo: add a cache for audio files with some reasonable limit
-            false,
-        )
-        .await
-        .map_err(|err| format!("Failed to establish session with error {err:?}"))?;
+    pub(crate) async fn new(
+        username: String,
+        password: Option<String>,
+        cache_location: Option<String>,
+    ) -> Result<SpotifyPlayer, String> {
+        let cache = if let Some(cache_location) = cache_location {
+            // Store caches for different usernames in separate subfolders
+            let mut user_cache_location = PathBuf::from(cache_location);
+            user_cache_location.push(&username);
+
+            let cache = Cache::new(
+                Some(&user_cache_location),
+                Some(&user_cache_location),
+                // todo: Cache audio files and limit overall cache size
+                None,
+                None,
+            )
+            .map_err(|err| format!("Failed to create cache due to '{err}'"))?;
+            Some(cache)
+        } else {
+            None
+        };
+
+        let credentials = password
+            .map(|password| Credentials::with_password(username, password))
+            .or_else(|| cache.as_ref().and_then(|cache| cache.credentials()))
+            .ok_or(String::from("Password not provided and not cached"))?;
+
+        let (session, _) = Session::connect(SessionConfig::default(), credentials, cache, true)
+            .await
+            .map_err(|err| format!("Failed to establish session with error {err:?}"))?;
 
         let mixer = Box::new(SoftMixer::open(MixerConfig {
             volume_ctrl: VolumeCtrl::Linear,
