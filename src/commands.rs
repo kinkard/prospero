@@ -7,8 +7,6 @@ use serenity::{
     model::channel::Message,
 };
 
-use crate::{player, voice};
-
 #[group]
 #[commands(join, leave, ping)]
 struct General;
@@ -30,25 +28,11 @@ async fn join(ctx: &Context, msg: &Message) -> CommandResult {
     };
     drop(guild); // we don't need it anymore
 
-    let manager = songbird::get(ctx)
+    let _vc_handler = songbird::get(ctx)
         .await
         .expect("Songbird Voice client placed in at initialisation.")
-        .clone();
-
-    let (vc_handler, conn_result) = manager.join(guild_id, channel_id).await;
-    if let Ok(_) = conn_result {
-        // NOTE: this skips listening for the actual connection result.
-        let mut vc = vc_handler.lock().await;
-        voice::Receiver::subscribe(&mut vc);
-
-        let player = player::get(&ctx)
-            .await
-            .expect("Spotify Player should be placed in at initialisation");
-
-        // 96k is a default Discord bitrate in guilds without nitro and we pull Spotify with 96k
-        vc.set_bitrate(songbird::driver::Bitrate::BitsPerSecond(96_000));
-        vc.play_only_source(player.audio_source());
-    }
+        .join(guild_id, channel_id)
+        .await;
 
     Ok(())
 }
@@ -59,18 +43,11 @@ async fn leave(ctx: &Context, msg: &Message) -> CommandResult {
     let guild = msg.guild(&ctx.cache).unwrap();
     let guild_id = guild.id;
 
-    let player = player::get(&ctx)
-        .await
-        .expect("Spotify Player should be placed in at initialisation");
-
-    player.stop();
-
     songbird::get(ctx)
         .await
         .expect("Songbird Voice client placed in at initialisation.")
         .remove(guild_id)
         .await?;
-
     Ok(())
 }
 

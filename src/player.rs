@@ -140,7 +140,11 @@ impl SpotifyPlayer {
         )
     }
 
-    pub(crate) fn stop(&self) {
+    pub(crate) fn play(&self) {
+        self.spirc.play();
+    }
+
+    pub(crate) fn pause(&self) {
         self.spirc.pause();
     }
 }
