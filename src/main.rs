@@ -25,10 +25,9 @@ async fn main() {
 
     let intents = GatewayIntents::non_privileged() | GatewayIntents::MESSAGE_CONTENT;
 
-    // Here, we need to configure Songbird to decode all incoming voice packets.
-    // If you want, you can do this on a per-call basis---here, we need it to
-    // read the audio data that other people are sending us!
-    let songbird_config = Config::default().decode_mode(DecodeMode::Decode);
+    // Skip all incoming voice packets by default to reduce CPU load.
+    // We will change it on per-call basis if we want to listen listen other people.
+    let songbird_config = Config::default().decode_mode(DecodeMode::Pass);
 
     let player = Arc::new(
         player::SpotifyPlayer::new(

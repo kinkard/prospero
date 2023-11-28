@@ -1,6 +1,7 @@
 use serenity::async_trait;
 
 use songbird::{
+    driver::DecodeMode,
     model::payload::{ClientDisconnect, Speaking},
     CoreEvent, Driver, Event, EventContext, EventHandler as VoiceEventHandler,
 };
@@ -14,12 +15,17 @@ impl Receiver {
         Self {}
     }
 
+    #[allow(dead_code)]
     pub(crate) fn subscribe(driver: &mut Driver) {
-        // todo: enable it back to listen what people saying
-        // driver.add_global_event(CoreEvent::SpeakingStateUpdate.into(), Self::new());
-        // driver.add_global_event(CoreEvent::SpeakingUpdate.into(), Self::new());
-        // driver.add_global_event(CoreEvent::VoicePacket.into(), Self::new());
-        // driver.add_global_event(CoreEvent::RtcpPacket.into(), Self::new());
+        // We want to receive decoded packets to handle them properly.
+        // Maybe worth to set a global config for that, but now we set it only for vc we subsribed.
+        let config = driver.config().clone();
+        driver.set_config(config.decode_mode(DecodeMode::Decode));
+
+        driver.add_global_event(CoreEvent::SpeakingStateUpdate.into(), Self::new());
+        driver.add_global_event(CoreEvent::SpeakingUpdate.into(), Self::new());
+        driver.add_global_event(CoreEvent::VoicePacket.into(), Self::new());
+        driver.add_global_event(CoreEvent::RtcpPacket.into(), Self::new());
         driver.add_global_event(CoreEvent::ClientDisconnect.into(), Self::new());
     }
 }

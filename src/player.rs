@@ -129,6 +129,9 @@ impl SpotifyPlayer {
 
     pub(crate) fn audio_source(&self) -> Input {
         let mut decoder = input::codec::OpusDecoderState::new().unwrap();
+
+        // todo: enable it once we can guarantee that source has been encoded at 48kHz, using 20ms long frames
+        // to save some CPU on redundant filtering
         decoder.allow_passthrough = false;
 
         input::Input::new(

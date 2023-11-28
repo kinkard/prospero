@@ -4,7 +4,7 @@ use serenity::{
     model::{id::GuildId, voice::VoiceState},
 };
 
-use crate::{player, voice};
+use crate::player;
 
 pub(crate) struct Handler;
 
@@ -17,24 +17,29 @@ impl EventHandler for Handler {
             current_user.id
         });
 
-        // If bot is already in some voice channel when launched we should emit event to sync our state
-        // as unfortunately `songbird` doesn't handle this case for us.
-        let channels_to_join = guilds
+        // Grab bot's current state on the moment of launching
+        let bot_guilds = guilds
             .into_iter()
             .filter_map(|id| ctx.cache.guild(id))
-            .filter_map(|guild| {
-                guild
+            .map(|guild| {
+                let channel_id = guild
                     .voice_states
                     .get(&self_user_id)
-                    .and_then(|voice_state| voice_state.channel_id)
-                    .map(|channel_id| (guild.id, channel_id))
+                    .and_then(|voice_state| voice_state.channel_id);
+                (guild.id, channel_id)
             });
-        for (guild_id, channel_id) in channels_to_join {
-            let _vc_handler = songbird::get(&ctx)
-                .await
-                .expect("Songbird Voice client placed in at initialisation.")
-                .join(guild_id, channel_id)
-                .await;
+
+        for (guild_id, channel_id) in bot_guilds {
+            // If bot is already in some voice channel when launched we should emit event to sync our state
+            // as unfortunately `songbird` doesn't handle this case for us.
+            // see https://github.com/serenity-rs/songbird/issues/113
+            if let Some(channel_id) = channel_id {
+                let _vc_handler = songbird::get(&ctx)
+                    .await
+                    .expect("Songbird Voice client placed in at initialisation.")
+                    .join(guild_id, channel_id)
+                    .await;
+            }
         }
     }
 
@@ -55,7 +60,7 @@ impl EventHandler for Handler {
                 {
                     let mut vc = vc.lock().await;
 
-                    voice::Receiver::subscribe(&mut vc);
+                    // voice::Receiver::subscribe(&mut vc);
 
                     // 96k is a default Discord bitrate in guilds without nitro and we pull Spotify with 96k
                     vc.set_bitrate(songbird::driver::Bitrate::BitsPerSecond(96_000));
