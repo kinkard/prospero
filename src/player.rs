@@ -128,12 +128,6 @@ impl SpotifyPlayer {
     }
 
     pub(crate) fn audio_source(&self) -> Input {
-        let mut decoder = input::codec::OpusDecoderState::new().unwrap();
-
-        // todo: enable it once we can guarantee that source has been encoded at 48kHz, using 20ms long frames
-        // to save some CPU on redundant filtering
-        decoder.allow_passthrough = false;
-
         input::Input::new(
             true,
             input::reader::Reader::Extension(Box::new(self.media_stream.clone())),
@@ -167,9 +161,9 @@ struct MediaSink {
     /// Number of frames in each chunk to process
     resampler_chunk_size: usize,
     /// Input buffer for resampler where we collect frames
-    input_buffer: (Vec<f32>, Vec<f32>),
+    input_buffer: [Vec<f32>; 2],
     /// Output buffer for resampler
-    output_buffer: Vec<Vec<f32>>,
+    output_buffer: [Vec<f32>; 2],
     /// Channel for resampled frames
     sender: flume::Sender<[f32; 2]>,
 }
@@ -186,18 +180,20 @@ fn create_media_channel() -> (MediaSink, MediaStream) {
     )
     .unwrap();
 
+    let output_chunk_size = resampler.output_frames_max();
+
     // Bound channel to the single chunk to simplify synchronizations between Sink and Stream
-    let (sender, receiver) = flume::bounded::<[f32; 2]>(resampler.output_frames_max());
-    let resampler_chunk_size = resampler.input_frames_max();
+    let (sender, receiver) = flume::bounded::<[f32; 2]>(output_chunk_size);
+    let input_chunk_size = resampler.input_frames_max();
 
     (
         MediaSink {
-            resampler_chunk_size,
-            input_buffer: (
-                Vec::with_capacity(resampler_chunk_size),
-                Vec::with_capacity(resampler_chunk_size),
-            ),
-            output_buffer: resampler.output_buffer_allocate(),
+            resampler_chunk_size: input_chunk_size,
+            input_buffer: [
+                Vec::with_capacity(input_chunk_size),
+                Vec::with_capacity(input_chunk_size),
+            ],
+            output_buffer: [vec![0.0; output_chunk_size], vec![0.0; output_chunk_size]],
             resampler,
             sender,
         },
@@ -216,22 +212,15 @@ impl audio_backend::Sink for MediaSink {
 
     fn write(&mut self, packet: AudioPacket, _converter: &mut Converter) -> SinkResult<()> {
         for c in packet.samples().unwrap().chunks_exact(2) {
-            self.input_buffer.0.push(c[0] as f32);
-            self.input_buffer.1.push(c[1] as f32);
-            if self.input_buffer.0.len() == self.resampler_chunk_size {
+            self.input_buffer[0].push(c[0] as f32);
+            self.input_buffer[1].push(c[1] as f32);
+            if self.input_buffer[0].len() == self.resampler_chunk_size {
                 self.resampler
-                    .process_into_buffer(
-                        &[
-                            &self.input_buffer.0[0..self.resampler_chunk_size],
-                            &self.input_buffer.1[0..self.resampler_chunk_size],
-                        ],
-                        &mut self.output_buffer,
-                        None,
-                    )
+                    .process_into_buffer(&self.input_buffer, &mut self.output_buffer, None)
                     .unwrap();
 
-                self.input_buffer.0.clear();
-                self.input_buffer.1.clear();
+                self.input_buffer[0].clear();
+                self.input_buffer[1].clear();
 
                 let sender = self.sender.clone();
 

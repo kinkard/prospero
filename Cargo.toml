@@ -19,4 +19,4 @@ songbird = "0.3"
 # Spotify dependencies
 librespot = {version = "0.4", default-features = false}
 byteorder = "1.4"
-rubato = "0.12"
+rubato = "0.14"
