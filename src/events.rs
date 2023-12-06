@@ -60,8 +60,6 @@ impl EventHandler for Handler {
                 {
                     let mut vc = vc.lock().await;
 
-                    // voice::Receiver::subscribe(&mut vc);
-
                     // 96k is a default Discord bitrate in guilds without nitro and we pull Spotify with 96k
                     vc.set_bitrate(songbird::driver::Bitrate::BitsPerSecond(96_000));
                     vc.play_only_source(player.audio_source());

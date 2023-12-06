@@ -7,7 +7,6 @@ use songbird::{driver::DecodeMode, Config, SerenityInit};
 mod commands;
 mod events;
 mod player;
-mod voice;
 
 #[tokio::main]
 async fn main() {
@@ -26,7 +25,6 @@ async fn main() {
     let intents = GatewayIntents::non_privileged() | GatewayIntents::MESSAGE_CONTENT;
 
     // Skip all incoming voice packets by default to reduce CPU load.
-    // We will change it on per-call basis if we want to listen listen other people.
     let songbird_config = Config::default().decode_mode(DecodeMode::Pass);
 
     let player = Arc::new(
