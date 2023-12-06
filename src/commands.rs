@@ -14,19 +14,21 @@ struct General;
 #[command]
 #[only_in(guilds)]
 async fn join(ctx: &Context, msg: &Message) -> CommandResult {
-    let guild = msg.guild(&ctx.cache).unwrap();
-    let guild_id = guild.id;
+    let (guild_id, channel_id) = {
+        let guild = msg.guild(&ctx.cache).unwrap();
+        let channel_id = guild
+            .voice_states
+            .get(&msg.author.id)
+            .and_then(|voice_state| voice_state.channel_id);
 
-    let Some(channel_id) = guild
-        .voice_states
-        .get(&msg.author.id)
-        .and_then(|state| state.channel_id)
-    else {
+        (guild.id, channel_id)
+    };
+
+    let Some(channel_id) = channel_id else {
         msg.reply(ctx, "You should be in a voice channel to invite me")
             .await?;
         return Ok(());
     };
-    drop(guild); // we don't need it anymore
 
     let _vc_handler = songbird::get(ctx)
         .await
@@ -40,8 +42,7 @@ async fn join(ctx: &Context, msg: &Message) -> CommandResult {
 #[command]
 #[only_in(guilds)]
 async fn leave(ctx: &Context, msg: &Message) -> CommandResult {
-    let guild = msg.guild(&ctx.cache).unwrap();
-    let guild_id = guild.id;
+    let guild_id = msg.guild(&ctx.cache).unwrap().id;
 
     songbird::get(ctx)
         .await
