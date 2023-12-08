@@ -19,7 +19,8 @@ use librespot::playback::{
 
 use serenity::client::Context;
 use serenity::prelude::TypeMapKey;
-use songbird::input::{self, Input};
+use songbird::input::core::io::MediaSource;
+use songbird::input::{AudioStream, Input, LiveInput};
 
 use std::clone::Clone;
 use std::path::PathBuf;
@@ -27,8 +28,6 @@ use std::sync::Arc;
 use std::{io, mem};
 
 use byteorder::{ByteOrder, LittleEndian};
-use rubato::{FftFixedInOut, Resampler};
-use songbird::input::reader::MediaSource;
 
 /// Key to store SpotifyPlayer in the serenity context
 pub(crate) struct SpotifyPlayerKey;
@@ -127,12 +126,15 @@ impl SpotifyPlayer {
         })
     }
 
-    pub(crate) fn audio_source(&self) -> Input {
-        input::Input::new(
-            true,
-            input::reader::Reader::Extension(Box::new(self.media_stream.clone())),
-            input::codec::Codec::FloatPcm,
-            input::Container::Raw,
+    pub(crate) fn audio_input(&self) -> Input {
+        // Basically we do what songbird does in `RawAdapter` but in much more simpler way,
+        // as we can simply put the magic header `b"SbirdRaw\0\0\0\0\0\0\0\0"` + LE u32 sample rate and channels count
+        // directly to the channel. See `create_media_channel()` for more details.
+        Input::Live(
+            LiveInput::Raw(AudioStream {
+                input: Box::new(self.media_stream.clone()),
+                hint: None,
+            }),
             None,
         )
     }
@@ -155,50 +157,24 @@ impl Drop for SpotifyPlayer {
     }
 }
 
-struct MediaSink {
-    /// Resampler to convert from spotify sample rate to discord
-    resampler: FftFixedInOut<f32>,
-    /// Number of frames in each chunk to process
-    resampler_chunk_size: usize,
-    /// Input buffer for resampler where we collect frames
-    input_buffer: [Vec<f32>; 2],
-    /// Output buffer for resampler
-    output_buffer: [Vec<f32>; 2],
-    /// Channel for resampled frames
-    sender: flume::Sender<[f32; 2]>,
-}
+type AudioSample = [u8; 8];
+
+struct MediaSink(flume::Sender<AudioSample>);
 
 #[derive(Clone)]
-struct MediaStream(flume::Receiver<[f32; 2]>);
+struct MediaStream(flume::Receiver<AudioSample>);
 
 fn create_media_channel() -> (MediaSink, MediaStream) {
-    let resampler = FftFixedInOut::<f32>::new(
-        librespot::playback::SAMPLE_RATE as usize,
-        songbird::constants::SAMPLE_RATE_RAW,
-        1024,
-        2,
-    )
-    .unwrap();
+    let (sender, receiver) = flume::bounded::<AudioSample>(1024);
 
-    let output_chunk_size = resampler.output_frames_max();
+    // Send magic header with LE u32 sample reate and channels count to pass these values to symphonia
+    sender.send(*b"SbirdRaw").unwrap();
 
-    // Bound channel to the single chunk to simplify synchronizations between Sink and Stream
-    let (sender, receiver) = flume::bounded::<[f32; 2]>(output_chunk_size);
-    let input_chunk_size = resampler.input_frames_max();
+    let mut header: AudioSample = Default::default();
+    LittleEndian::write_u32_into(&[librespot::playback::SAMPLE_RATE, 2], &mut header);
+    sender.send(header).unwrap();
 
-    (
-        MediaSink {
-            resampler_chunk_size: input_chunk_size,
-            input_buffer: [
-                Vec::with_capacity(input_chunk_size),
-                Vec::with_capacity(input_chunk_size),
-            ],
-            output_buffer: [vec![0.0; output_chunk_size], vec![0.0; output_chunk_size]],
-            resampler,
-            sender,
-        },
-        MediaStream(receiver),
-    )
+    (MediaSink(sender), MediaStream(receiver))
 }
 
 impl audio_backend::Sink for MediaSink {
@@ -212,33 +188,17 @@ impl audio_backend::Sink for MediaSink {
 
     fn write(&mut self, packet: AudioPacket, _converter: &mut Converter) -> SinkResult<()> {
         for c in packet.samples().unwrap().chunks_exact(2) {
-            self.input_buffer[0].push(c[0] as f32);
-            self.input_buffer[1].push(c[1] as f32);
-            if self.input_buffer[0].len() == self.resampler_chunk_size {
-                self.resampler
-                    .process_into_buffer(&self.input_buffer, &mut self.output_buffer, None)
-                    .unwrap();
-
-                self.input_buffer[0].clear();
-                self.input_buffer[1].clear();
-
-                let sender = self.sender.clone();
-
-                for i in 0..self.output_buffer[0].len() {
-                    sender
-                        .send([self.output_buffer[0][i], self.output_buffer[1][i]])
-                        .unwrap()
-                }
-            }
+            let mut sample: [u8; 8] = Default::default();
+            LittleEndian::write_f32_into(&[c[0] as f32, c[1] as f32], &mut sample);
+            self.0.send(sample).unwrap();
         }
-
         Ok(())
     }
 }
 
 impl io::Read for MediaStream {
     fn read(&mut self, buff: &mut [u8]) -> io::Result<usize> {
-        let sample_size = mem::size_of::<f32>() * 2;
+        let sample_size = mem::size_of::<AudioSample>();
 
         if buff.len() < sample_size {
             return Err(io::Error::new(
@@ -255,15 +215,9 @@ impl io::Read for MediaStream {
                 // therefore block until at least one stereo data set can be returned.
 
                 let sample = self.0.recv().unwrap();
-                LittleEndian::write_f32_into(
-                    &sample,
-                    &mut buff[bytes_written..(bytes_written + sample_size)],
-                );
-            } else if let Ok(data) = self.0.try_recv() {
-                LittleEndian::write_f32_into(
-                    &data,
-                    &mut buff[bytes_written..(bytes_written + sample_size)],
-                );
+                buff[bytes_written..(bytes_written + sample_size)].copy_from_slice(&sample);
+            } else if let Ok(sample) = self.0.try_recv() {
+                buff[bytes_written..(bytes_written + sample_size)].copy_from_slice(&sample);
             } else {
                 break;
             }

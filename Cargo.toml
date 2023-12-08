@@ -10,13 +10,13 @@ authors = ["Stepan Kizim <stsiapan.kizim@gmail.com>"]
 [dependencies]
 dotenv = "0.15"
 tokio = { version = "1", features = ["rt-multi-thread"] }
-flume = { version = "0.11.0", default-features = false }
+flume = { version = "0.11", default-features = false }
 # Discord dependencies
-serenity = { version = "0.11", default-features = false, features = [
+serenity = { version = "0.12", default-features = false, features = [
   "cache", "standard_framework", "voice", "rustls_backend"
 ] }
-songbird = "0.3"
+songbird = "0.4"
+symphonia = { version = "0.5", default-features = false, features = ["pcm"] }
 # Spotify dependencies
 librespot = {version = "0.4", default-features = false}
-byteorder = "1.4"
-rubato = "0.14"
+byteorder = "1.5"

@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use serenity::{
     async_trait,
     client::{Context, EventHandler},
@@ -12,10 +14,11 @@ pub(crate) struct Handler;
 impl EventHandler for Handler {
     // Use `cache_ready()` instead of `ready()` to have an ability to do stuff that requires cache
     async fn cache_ready(&self, ctx: Context, guilds: Vec<GuildId>) {
-        let self_user_id = ctx.cache.current_user_field(|current_user| {
-            println!("{} is connected!", current_user.name);
-            current_user.id
-        });
+        let self_user_id = {
+            let self_user = ctx.cache.current_user();
+            println!("{} is connected!", self_user.name);
+            self_user.id
+        };
 
         // Grab bot's current state on the moment of launching
         let bot_guilds = guilds
@@ -44,7 +47,7 @@ impl EventHandler for Handler {
     }
 
     async fn voice_state_update(&self, ctx: Context, _old: Option<VoiceState>, new: VoiceState) {
-        if new.user_id == ctx.cache.current_user_id() {
+        if new.user_id == ctx.cache.current_user().id {
             let player = player::get(&ctx)
                 .await
                 .expect("Spotify Player should be placed in at initialisation");
@@ -58,14 +61,20 @@ impl EventHandler for Handler {
                     .expect("Songbird Voice client placed in at initialisation.")
                     .get(guild_id)
                 {
-                    let mut vc = vc.lock().await;
+                    // Workaround for a problem introduced in songbird v0.4 as setting input to voice channel
+                    // doesn't work without some delay. Seems some internal state is not ready at the moment
+                    // of the current event.
+                    tokio::spawn(async move {
+                        tokio::time::sleep(Duration::from_millis(200)).await;
 
-                    // 96k is a default Discord bitrate in guilds without nitro and we pull Spotify with 96k
-                    vc.set_bitrate(songbird::driver::Bitrate::BitsPerSecond(96_000));
-                    vc.play_only_source(player.audio_source());
+                        let mut vc = vc.lock().await;
 
-                    player.play();
-                    println!("Joined {channel_id}");
+                        // 96k is a default Discord bitrate in guilds without nitro and we pull Spotify with 96k
+                        vc.set_bitrate(songbird::driver::Bitrate::BitsPerSecond(96_000));
+                        vc.play_only_input(player.audio_input());
+                        player.play();
+                        println!("Joined {channel_id}");
+                    });
                 }
             } else {
                 // Bot left voice channel, let's stop player

@@ -1,8 +1,11 @@
 use std::{env, sync::Arc};
 
-use serenity::{client::Client, framework::StandardFramework, prelude::GatewayIntents};
-
-use songbird::{driver::DecodeMode, Config, SerenityInit};
+use serenity::{
+    client::Client,
+    framework::{standard::Configuration, StandardFramework},
+    prelude::GatewayIntents,
+};
+use songbird::SerenityInit;
 
 mod commands;
 mod events;
@@ -18,14 +21,10 @@ async fn main() {
     // Configure the client with your Discord bot token in the environment.
     let token = env::var("DISCORD_TOKEN").expect("Expected discord token in the environment");
 
-    let framework = StandardFramework::new()
-        .configure(|c| c.prefix("/"))
-        .group(&commands::GENERAL_GROUP);
+    let framework = StandardFramework::new().group(&commands::GENERAL_GROUP);
+    framework.configure(Configuration::new().prefix("/"));
 
     let intents = GatewayIntents::non_privileged() | GatewayIntents::MESSAGE_CONTENT;
-
-    // Skip all incoming voice packets by default to reduce CPU load.
-    let songbird_config = Config::default().decode_mode(DecodeMode::Pass);
 
     let player = Arc::new(
         player::SpotifyPlayer::new(
@@ -41,7 +40,7 @@ async fn main() {
         .event_handler(events::Handler)
         .framework(framework)
         .type_map_insert::<player::SpotifyPlayerKey>(player)
-        .register_songbird_from_config(songbird_config)
+        .register_songbird()
         .await
         .expect("Failed to create discord client");
 
