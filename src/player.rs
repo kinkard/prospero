@@ -23,9 +23,9 @@ use songbird::input::core::io::MediaSource;
 use songbird::input::{AudioStream, Input, LiveInput};
 
 use std::clone::Clone;
+use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::{io, mem};
 
 use byteorder::{ByteOrder, LittleEndian};
 
@@ -157,24 +157,34 @@ impl Drop for SpotifyPlayer {
     }
 }
 
-type AudioSample = [u8; 8];
-
-struct MediaSink(flume::Sender<AudioSample>);
+struct MediaSink(flume::Sender<Vec<u8>>);
 
 #[derive(Clone)]
-struct MediaStream(flume::Receiver<AudioSample>);
+struct MediaStream {
+    receiver: flume::Receiver<Vec<u8>>,
+    /// Intermediate buffer to handle cases when the whole packet could not be read
+    unread: Vec<u8>,
+    /// Position where previous read finished
+    read_offset: usize,
+}
 
 fn create_media_channel() -> (MediaSink, MediaStream) {
-    let (sender, receiver) = flume::bounded::<AudioSample>(1024);
+    let (sender, receiver) = flume::bounded::<Vec<u8>>(16);
 
     // Send magic header with LE u32 sample reate and channels count to pass these values to symphonia
-    sender.send(*b"SbirdRaw").unwrap();
+    let mut header = vec![0_u8; 16];
+    header[..8].copy_from_slice(b"SbirdRaw");
+    LittleEndian::write_u32(&mut header[8..12], librespot::playback::SAMPLE_RATE);
+    LittleEndian::write_u32(&mut header[12..], 2); // channels count
 
-    let mut header: AudioSample = Default::default();
-    LittleEndian::write_u32_into(&[librespot::playback::SAMPLE_RATE, 2], &mut header);
-    sender.send(header).unwrap();
-
-    (MediaSink(sender), MediaStream(receiver))
+    (
+        MediaSink(sender),
+        MediaStream {
+            receiver,
+            unread: header,
+            read_offset: 0,
+        },
+    )
 }
 
 impl audio_backend::Sink for MediaSink {
@@ -187,44 +197,57 @@ impl audio_backend::Sink for MediaSink {
     }
 
     fn write(&mut self, packet: AudioPacket, _converter: &mut Converter) -> SinkResult<()> {
-        for c in packet.samples().unwrap().chunks_exact(2) {
-            let mut sample: [u8; 8] = Default::default();
-            LittleEndian::write_f32_into(&[c[0] as f32, c[1] as f32], &mut sample);
-            self.0.send(sample).unwrap();
-        }
+        let AudioPacket::Samples(samples) = packet else {
+            unreachable!("librespot uses only f64 samples");
+        };
+
+        // todo: we can reuse the memory we have
+        let packet = samples
+            .into_iter()
+            .map(|sample| {
+                let mut buff: [u8; 4] = Default::default();
+                LittleEndian::write_f32(&mut buff, sample as f32);
+                buff
+            })
+            .flatten()
+            .collect::<Vec<_>>();
+        self.0.send(packet).unwrap();
         Ok(())
     }
 }
 
 impl io::Read for MediaStream {
     fn read(&mut self, buff: &mut [u8]) -> io::Result<usize> {
-        let sample_size = mem::size_of::<AudioSample>();
-
-        if buff.len() < sample_size {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "MediaStream does not support read buffer too small to guarantee \
-                holding one audio sample (8 bytes)",
-            ));
+        if self.unread.is_empty() || self.read_offset == self.unread.len() {
+            // Block songbird here instead of returning 0 to avoid switching to the next track,
+            // as we handle spotify as an infinite one
+            self.unread = self.receiver.recv().unwrap();
+            self.read_offset = 0;
         }
 
-        let mut bytes_written = 0;
-        while bytes_written + (sample_size - 1) < buff.len() {
-            if bytes_written == 0 {
-                // We can not return 0 bytes because songbird then thinks that the track has ended,
-                // therefore block until at least one stereo data set can be returned.
+        let mut bytes_read = 0;
+        loop {
+            let to_read = (buff.len() - bytes_read).min(self.unread.len() - self.read_offset);
+            buff[bytes_read..bytes_read + to_read]
+                .copy_from_slice(&self.unread[self.read_offset..self.read_offset + to_read]);
+            self.read_offset += to_read;
+            bytes_read += to_read;
 
-                let sample = self.0.recv().unwrap();
-                buff[bytes_written..(bytes_written + sample_size)].copy_from_slice(&sample);
-            } else if let Ok(sample) = self.0.try_recv() {
-                buff[bytes_written..(bytes_written + sample_size)].copy_from_slice(&sample);
+            // Read other packets if any and if there is some space in buff
+            if bytes_read < buff.len() {
+                match self.receiver.try_recv() {
+                    Ok(packet) => {
+                        self.unread = packet;
+                        self.read_offset = 0;
+                    }
+                    Err(_) => break, // No pending packets in the channel
+                }
             } else {
-                break;
+                break; // No space left
             }
-            bytes_written += sample_size;
         }
 
-        Ok(bytes_written)
+        Ok(bytes_read)
     }
 }
 
