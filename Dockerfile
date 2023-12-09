@@ -1,7 +1,7 @@
 FROM rust:alpine as builder
 
-# Dependencies for audiopus_sys, used by librespot-audio
-RUN apk add --no-cache alpine-sdk cmake automake autoconf opus libtool
+# Dependencies for some crates
+RUN apk add --no-cache alpine-sdk cmake
 
 WORKDIR /usr/src/app
 
