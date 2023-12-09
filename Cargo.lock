@@ -1664,7 +1664,6 @@ dependencies = [
 name = "prospero"
 version = "0.1.0"
 dependencies = [
- "byteorder",
  "dotenv",
  "flume",
  "librespot",

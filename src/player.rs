@@ -27,8 +27,6 @@ use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use byteorder::{ByteOrder, LittleEndian};
-
 /// Key to store SpotifyPlayer in the serenity context
 pub(crate) struct SpotifyPlayerKey;
 
@@ -172,10 +170,10 @@ fn create_media_channel() -> (MediaSink, MediaStream) {
     let (sender, receiver) = flume::bounded::<Vec<u8>>(16);
 
     // Send magic header with LE u32 sample reate and channels count to pass these values to symphonia
-    let mut header = vec![0_u8; 16];
-    header[..8].copy_from_slice(b"SbirdRaw");
-    LittleEndian::write_u32(&mut header[8..12], librespot::playback::SAMPLE_RATE);
-    LittleEndian::write_u32(&mut header[12..], 2); // channels count
+    let mut header = Vec::with_capacity(16);
+    header.extend(b"SbirdRaw");
+    header.extend((librespot::playback::SAMPLE_RATE as u32).to_le_bytes());
+    header.extend(2_u32.to_le_bytes()); // channels count
 
     (
         MediaSink(sender),
@@ -201,15 +199,9 @@ impl audio_backend::Sink for MediaSink {
             unreachable!("librespot uses only f64 samples");
         };
 
-        // todo: we can reuse the memory we have
         let packet = samples
             .into_iter()
-            .map(|sample| {
-                let mut buff: [u8; 4] = Default::default();
-                LittleEndian::write_f32(&mut buff, sample as f32);
-                buff
-            })
-            .flatten()
+            .flat_map(|sample| (sample as f32).to_le_bytes())
             .collect::<Vec<_>>();
         self.0.send(packet).unwrap();
         Ok(())
