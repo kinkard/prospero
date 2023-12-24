@@ -6,6 +6,7 @@ use tokio::sync::Mutex;
 
 mod commands;
 mod events;
+mod http_client;
 mod spotify;
 
 #[tokio::main]
@@ -33,6 +34,7 @@ async fn main() {
                 commands::leave(),
                 commands::ping(),
                 commands::connect_spotify(),
+                commands::play(),
             ],
             ..Default::default()
         })
@@ -52,6 +54,7 @@ async fn main() {
         .event_handler(events::Handler)
         .framework(framework)
         .type_map_insert::<spotify::ManagerKey>(manager)
+        .type_map_insert::<http_client::HttpClientKey>(http_client::HttpClient::new())
         .register_songbird()
         .await
         .expect("Failed to create discord client");

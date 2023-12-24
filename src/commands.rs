@@ -1,5 +1,9 @@
 use crate::spotify;
 
+use songbird::input::YoutubeDl;
+
+use crate::http_client;
+
 pub(crate) type Error = Box<dyn std::error::Error + Send + Sync>;
 type Context<'a> = poise::Context<'a, (), Error>;
 
@@ -90,6 +94,39 @@ pub(crate) async fn connect_spotify(
             .expect("Songbird Voice client placed in at initialisation.")
             .join(guild_id, channel_id)
             .await;
+    }
+
+    Ok(())
+}
+
+#[poise::command(guild_only, slash_command)]
+pub(crate) async fn play(ctx: Context<'_>, url: String) -> Result<(), Error> {
+    let guild_id = ctx.guild().unwrap().id;
+
+    if !url.starts_with("http") {
+        ctx.reply("Must provide a valid URL that starts with `http`")
+            .await?;
+        return Ok(());
+    }
+
+    let http_client = http_client::get(ctx.serenity_context())
+        .await
+        .expect("HttpClient should be inserted in at initialisation");
+
+    if let Some(vc) = songbird::get(ctx.serenity_context())
+        .await
+        .expect("Songbird Voice client placed in at initialisation.")
+        .get(guild_id)
+    {
+        let mut vc = vc.lock().await;
+
+        ctx.reply(format!("Playing {url}")).await?;
+
+        let src = YoutubeDl::new(http_client, url);
+        let _ = vc.play_only_input(src.into());
+    } else {
+        // todo: join vc message author belongs to
+        ctx.reply("Not in a voice channel to play in").await?;
     }
 
     Ok(())

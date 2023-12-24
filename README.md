@@ -18,6 +18,8 @@ cargo run --release
 alternatively, Docker image can be used:
 
 ```sh
+make docker
+
 echo "DISCORD_TOKEN=my discord token" > .env
 echo "DATA_DIR=/storage" >> .env
 docker run --rm --env-file .env -v $PWD:/storage kinkard/prospero
