@@ -1,36 +1,26 @@
-use serenity::{
-    client::Context,
-    framework::standard::{
-        macros::{command, group},
-        CommandResult,
-    },
-    model::channel::Message,
-};
+pub(crate) type Error = Box<dyn std::error::Error + Send + Sync>;
+type Context<'a> = poise::Context<'a, (), Error>;
 
-#[group]
-#[commands(join, leave, ping)]
-struct General;
-
-#[command]
-#[only_in(guilds)]
-async fn join(ctx: &Context, msg: &Message) -> CommandResult {
+/// Join my current voice channel
+#[poise::command(guild_only, slash_command)]
+pub(crate) async fn join(ctx: Context<'_>) -> Result<(), Error> {
     let (guild_id, channel_id) = {
-        let guild = msg.guild(&ctx.cache).unwrap();
+        let guild = ctx.guild().unwrap();
         let channel_id = guild
             .voice_states
-            .get(&msg.author.id)
+            .get(&ctx.author().id)
             .and_then(|voice_state| voice_state.channel_id);
 
         (guild.id, channel_id)
     };
 
     let Some(channel_id) = channel_id else {
-        msg.reply(ctx, "You should be in a voice channel to invite me")
+        ctx.reply("You should be in a voice channel to invite me")
             .await?;
         return Ok(());
     };
 
-    let _vc_handler = songbird::get(ctx)
+    let _vc_handler = songbird::get(ctx.serenity_context())
         .await
         .expect("Songbird Voice client placed in at initialisation.")
         .join(guild_id, channel_id)
@@ -39,12 +29,12 @@ async fn join(ctx: &Context, msg: &Message) -> CommandResult {
     Ok(())
 }
 
-#[command]
-#[only_in(guilds)]
-async fn leave(ctx: &Context, msg: &Message) -> CommandResult {
-    let guild_id = msg.guild(&ctx.cache).unwrap().id;
+/// Leave voice channel
+#[poise::command(guild_only, slash_command)]
+pub(crate) async fn leave(ctx: Context<'_>) -> Result<(), Error> {
+    let guild_id = ctx.guild().unwrap().id;
 
-    songbird::get(ctx)
+    songbird::get(ctx.serenity_context())
         .await
         .expect("Songbird Voice client placed in at initialisation.")
         .remove(guild_id)
@@ -52,8 +42,9 @@ async fn leave(ctx: &Context, msg: &Message) -> CommandResult {
     Ok(())
 }
 
-#[command]
-async fn ping(ctx: &Context, msg: &Message) -> CommandResult {
-    msg.channel_id.say(&ctx.http, "Pong!").await?;
+/// Ask bot to say "Pong!"
+#[poise::command(slash_command)]
+pub(crate) async fn ping(ctx: Context<'_>) -> Result<(), Error> {
+    ctx.say("Pong!").await?;
     Ok(())
 }

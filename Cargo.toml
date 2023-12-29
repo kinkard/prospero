@@ -12,8 +12,9 @@ dotenv = "0.15"
 tokio = { version = "1", features = ["rt-multi-thread"] }
 flume = { version = "0.11", default-features = false }
 # Discord dependencies
+poise = "0.6.1-rc1"
 serenity = { version = "0.12", default-features = false, features = [
-  "cache", "standard_framework", "voice", "rustls_backend"
+  "cache", "voice", "rustls_backend"
 ] }
 songbird = "0.4"
 symphonia = { version = "0.5", default-features = false, features = ["pcm"] }

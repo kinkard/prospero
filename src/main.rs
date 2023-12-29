@@ -1,10 +1,6 @@
 use std::{env, sync::Arc};
 
-use serenity::{
-    client::Client,
-    framework::{standard::Configuration, StandardFramework},
-    prelude::GatewayIntents,
-};
+use serenity::{client::Client, prelude::GatewayIntents};
 use songbird::SerenityInit;
 
 mod commands;
@@ -21,8 +17,20 @@ async fn main() {
     // Configure the client with your Discord bot token in the environment.
     let token = env::var("DISCORD_TOKEN").expect("Expected discord token in the environment");
 
-    let framework = StandardFramework::new().group(&commands::GENERAL_GROUP);
-    framework.configure(Configuration::new().prefix("/"));
+    let framework = poise::Framework::builder()
+        .setup(
+            |ctx, _ready, framework: &poise::Framework<(), commands::Error>| {
+                Box::pin(async move {
+                    poise::builtins::register_globally(ctx, &framework.options().commands).await?;
+                    Ok(())
+                })
+            },
+        )
+        .options(poise::FrameworkOptions {
+            commands: vec![commands::join(), commands::leave(), commands::ping()],
+            ..Default::default()
+        })
+        .build();
 
     let intents = GatewayIntents::non_privileged() | GatewayIntents::MESSAGE_CONTENT;
 
