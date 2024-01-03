@@ -5,7 +5,7 @@ use songbird::SerenityInit;
 
 mod commands;
 mod events;
-mod player;
+mod spotify;
 
 #[tokio::main]
 async fn main() {
@@ -35,7 +35,7 @@ async fn main() {
     let intents = GatewayIntents::non_privileged() | GatewayIntents::MESSAGE_CONTENT;
 
     let player = Arc::new(
-        player::SpotifyPlayer::new(
+        spotify::Player::new(
             env::var("SPOTIFY_USERNAME").expect("Expected spotify username in the environment"),
             env::var("SPOTIFY_PASSWD").ok(),
             env::var("CACHE_LOCATION").ok(),
@@ -47,7 +47,7 @@ async fn main() {
     let mut client = Client::builder(&token, intents)
         .event_handler(events::Handler)
         .framework(framework)
-        .type_map_insert::<player::SpotifyPlayerKey>(player)
+        .type_map_insert::<spotify::PlayerKey>(player)
         .register_songbird()
         .await
         .expect("Failed to create discord client");

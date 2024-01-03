@@ -14,7 +14,6 @@ use librespot::playback::{
     decoder::AudioPacket,
     mixer::softmixer::SoftMixer,
     mixer::{Mixer, MixerConfig},
-    player::Player,
 };
 
 use serenity::client::Context;
@@ -28,19 +27,19 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 /// Key to store SpotifyPlayer in the serenity context
-pub(crate) struct SpotifyPlayerKey;
+pub(crate) struct PlayerKey;
 
-impl TypeMapKey for SpotifyPlayerKey {
-    type Value = Arc<SpotifyPlayer>;
+impl TypeMapKey for PlayerKey {
+    type Value = Arc<Player>;
 }
 
-pub(crate) async fn get(ctx: &Context) -> Option<Arc<SpotifyPlayer>> {
+pub(crate) async fn get_player(ctx: &Context) -> Option<Arc<Player>> {
     let data = ctx.data.read().await;
-    data.get::<SpotifyPlayerKey>().cloned()
+    data.get::<PlayerKey>().cloned()
 }
 
 /// A wrapper around librespot entities
-pub(crate) struct SpotifyPlayer {
+pub(crate) struct Player {
     /// Connection session to Spotify
     session: Session,
     /// Object to control player, e.g. spirc.shutdown()
@@ -49,12 +48,12 @@ pub(crate) struct SpotifyPlayer {
     media_stream: MediaStream,
 }
 
-impl SpotifyPlayer {
+impl Player {
     pub(crate) async fn new(
         username: String,
         password: Option<String>,
         cache_location: Option<String>,
-    ) -> Result<SpotifyPlayer, String> {
+    ) -> Result<Player, String> {
         let cache = if let Some(cache_location) = cache_location {
             // Store caches for different usernames in separate subfolders
             let mut user_cache_location = PathBuf::from(cache_location);
@@ -89,7 +88,7 @@ impl SpotifyPlayer {
 
         let (media_sink, media_stream) = create_media_channel();
 
-        let (player, event_channel) = Player::new(
+        let (player, event_channel) = librespot::playback::player::Player::new(
             PlayerConfig {
                 // Anyway discord reduces bitrate to 96k, so there is no point to pull more data
                 bitrate: Bitrate::Bitrate96,
@@ -117,7 +116,7 @@ impl SpotifyPlayer {
             task.await;
         });
 
-        Ok(SpotifyPlayer {
+        Ok(Player {
             session,
             spirc,
             media_stream,
@@ -146,7 +145,7 @@ impl SpotifyPlayer {
     }
 }
 
-impl Drop for SpotifyPlayer {
+impl Drop for Player {
     fn drop(&mut self) {
         // Notify that we are done with this session
         self.session.shutdown();

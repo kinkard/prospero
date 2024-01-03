@@ -6,7 +6,7 @@ use serenity::{
     model::{id::GuildId, voice::VoiceState},
 };
 
-use crate::player;
+use crate::spotify;
 
 pub(crate) struct Handler;
 
@@ -48,7 +48,7 @@ impl EventHandler for Handler {
 
     async fn voice_state_update(&self, ctx: Context, _old: Option<VoiceState>, new: VoiceState) {
         if new.user_id == ctx.cache.current_user().id {
-            let player = player::get(&ctx)
+            let player = spotify::get_player(&ctx)
                 .await
                 .expect("Spotify Player should be placed in at initialisation");
 
