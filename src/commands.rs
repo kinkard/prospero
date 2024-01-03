@@ -26,6 +26,7 @@ pub(crate) async fn join(ctx: Context<'_>) -> Result<(), Error> {
         .join(guild_id, channel_id)
         .await;
 
+    ctx.reply(format!("Joined voice channel")).await?;
     Ok(())
 }
 
@@ -39,12 +40,14 @@ pub(crate) async fn leave(ctx: Context<'_>) -> Result<(), Error> {
         .expect("Songbird Voice client placed in at initialisation.")
         .remove(guild_id)
         .await?;
+
+    ctx.reply("Left voice channel").await?;
     Ok(())
 }
 
 /// Ask bot to say "Pong!"
 #[poise::command(slash_command)]
 pub(crate) async fn ping(ctx: Context<'_>) -> Result<(), Error> {
-    ctx.say("Pong!").await?;
+    ctx.reply("Pong!").await?;
     Ok(())
 }
