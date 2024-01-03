@@ -44,8 +44,8 @@ pub(crate) struct Player {
     session: Session,
     /// Object to control player, e.g. spirc.shutdown()
     spirc: Spirc,
-    /// Audio stream that should be readed by the discord voice channel
-    media_stream: MediaStream,
+    /// Receives bytes stream from Spotify
+    media_receiver: flume::Receiver<Vec<u8>>,
 }
 
 impl Player {
@@ -86,7 +86,7 @@ impl Player {
             ..MixerConfig::default()
         }));
 
-        let (media_sink, media_stream) = create_media_channel();
+        let (sender, receiver) = flume::bounded::<Vec<u8>>(16);
 
         let (player, event_channel) = librespot::playback::player::Player::new(
             PlayerConfig {
@@ -96,7 +96,7 @@ impl Player {
             },
             session.clone(),
             mixer.get_soft_volume(),
-            move || Box::new(media_sink),
+            move || Box::new(MediaSink(sender)),
         );
         // Just drop it as we don't need player events for now
         drop(event_channel);
@@ -119,17 +119,17 @@ impl Player {
         Ok(Player {
             session,
             spirc,
-            media_stream,
+            media_receiver: receiver,
         })
     }
 
     pub(crate) fn audio_input(&self) -> Input {
         // Basically we do what songbird does in `RawAdapter` but in much more simpler way,
         // as we can simply put the magic header `b"SbirdRaw\0\0\0\0\0\0\0\0"` + LE u32 sample rate and channels count
-        // directly to the channel. See `create_media_channel()` for more details.
+        // directly to the channel. See `MediaStream::new()` for more details.
         Input::Live(
             LiveInput::Raw(AudioStream {
-                input: Box::new(self.media_stream.clone()),
+                input: Box::new(MediaStream::new(self.media_receiver.clone())),
                 hint: None,
             }),
             None,
@@ -165,23 +165,19 @@ struct MediaStream {
     read_offset: usize,
 }
 
-fn create_media_channel() -> (MediaSink, MediaStream) {
-    let (sender, receiver) = flume::bounded::<Vec<u8>>(16);
-
-    // Send magic header with LE u32 sample reate and channels count to pass these values to symphonia
-    let mut header = Vec::with_capacity(16);
-    header.extend(b"SbirdRaw");
-    header.extend((librespot::playback::SAMPLE_RATE as u32).to_le_bytes());
-    header.extend(2_u32.to_le_bytes()); // channels count
-
-    (
-        MediaSink(sender),
-        MediaStream {
+impl MediaStream {
+    fn new(receiver: flume::Receiver<Vec<u8>>) -> Self {
+        // Send magic header with LE u32 sample reate and channels count to pass these values to symphonia
+        let mut header = Vec::with_capacity(16);
+        header.extend(b"SbirdRaw");
+        header.extend((librespot::playback::SAMPLE_RATE as u32).to_le_bytes());
+        header.extend(2_u32.to_le_bytes()); // channels count
+        Self {
             receiver,
             unread: header,
             read_offset: 0,
-        },
-    )
+        }
+    }
 }
 
 impl audio_backend::Sink for MediaSink {
