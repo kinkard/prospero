@@ -1,42 +1,19 @@
+use std::{clone::Clone, io, path::PathBuf};
+
 use librespot::connect::spirc::Spirc;
-use librespot::core::cache::Cache;
 use librespot::core::{
-    authentication::Credentials,
+    cache::Cache,
     config::{ConnectConfig, DeviceType, SessionConfig},
     session::Session,
 };
 use librespot::playback::{
-    audio_backend,
-    audio_backend::SinkResult,
-    config::Bitrate,
-    config::{PlayerConfig, VolumeCtrl},
+    audio_backend::{self, SinkResult},
+    config::{Bitrate, PlayerConfig, VolumeCtrl},
     convert::Converter,
     decoder::AudioPacket,
-    mixer::softmixer::SoftMixer,
-    mixer::{Mixer, MixerConfig},
+    mixer::{softmixer::SoftMixer, Mixer, MixerConfig},
 };
-
-use serenity::client::Context;
-use serenity::prelude::TypeMapKey;
-use songbird::input::core::io::MediaSource;
-use songbird::input::{AudioStream, Input, LiveInput};
-
-use std::clone::Clone;
-use std::io;
-use std::path::PathBuf;
-use std::sync::Arc;
-
-/// Key to store SpotifyPlayer in the serenity context
-pub(crate) struct PlayerKey;
-
-impl TypeMapKey for PlayerKey {
-    type Value = Arc<Player>;
-}
-
-pub(crate) async fn get_player(ctx: &Context) -> Option<Arc<Player>> {
-    let data = ctx.data.read().await;
-    data.get::<PlayerKey>().cloned()
-}
+use songbird::input::{core::io::MediaSource, AudioStream, Input, LiveInput};
 
 /// A wrapper around librespot entities
 pub(crate) struct Player {
@@ -73,7 +50,7 @@ impl Player {
         };
 
         let credentials = password
-            .map(|password| Credentials::with_password(username, password))
+            .map(|password| librespot::discovery::Credentials::with_password(username, password))
             .or_else(|| cache.as_ref().and_then(|cache| cache.credentials()))
             .ok_or(String::from("Password not provided and not cached"))?;
 
@@ -135,14 +112,6 @@ impl Player {
             None,
         )
     }
-
-    pub(crate) fn play(&self) {
-        self.spirc.play();
-    }
-
-    pub(crate) fn pause(&self) {
-        self.spirc.pause();
-    }
 }
 
 impl Drop for Player {
@@ -198,7 +167,9 @@ impl audio_backend::Sink for MediaSink {
             .into_iter()
             .flat_map(|sample| (sample as f32).to_le_bytes())
             .collect::<Vec<_>>();
-        self.0.send(packet).unwrap();
+        // The error might happen when bot leaves vc and channel was closed.
+        // Because of `exit(1)` in the librespot on any error we return we have no other choice aside ignoring it.
+        let _ = self.0.send(packet);
         Ok(())
     }
 }
@@ -207,8 +178,12 @@ impl io::Read for MediaStream {
     fn read(&mut self, buff: &mut [u8]) -> io::Result<usize> {
         if self.unread.is_empty() || self.read_offset == self.unread.len() {
             // Block songbird here instead of returning 0 to avoid switching to the next track,
-            // as we handle spotify as an infinite one
-            self.unread = self.receiver.recv().unwrap();
+            // as we handle spotify as an infinite one.
+            let Ok(packet) = self.receiver.recv() else {
+                // The only case we should return 0 is when the channel was closed.
+                return Ok(0);
+            };
+            self.unread = packet;
             self.read_offset = 0;
         }
 

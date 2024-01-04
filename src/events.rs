@@ -46,11 +46,11 @@ impl EventHandler for Handler {
         }
     }
 
-    async fn voice_state_update(&self, ctx: Context, _old: Option<VoiceState>, new: VoiceState) {
+    async fn voice_state_update(&self, ctx: Context, old: Option<VoiceState>, new: VoiceState) {
         if new.user_id == ctx.cache.current_user().id {
-            let player = spotify::get_player(&ctx)
+            let spotify_manager = spotify::get_manager(&ctx)
                 .await
-                .expect("Spotify Player should be placed in at initialisation");
+                .expect("Spotify Manager should be placed in at initialisation");
 
             if let (Some(guild_id), Some(channel_id)) = (new.guild_id, new.channel_id) {
                 // Bot joined or was moved into a new voice channel, need to connect to the voice.
@@ -71,15 +71,21 @@ impl EventHandler for Handler {
 
                         // 96k is a default Discord bitrate in guilds without nitro and we pull Spotify with 96k
                         vc.set_bitrate(songbird::driver::Bitrate::BitsPerSecond(96_000));
-                        vc.play_only_input(player.audio_input());
-                        player.play();
-                        println!("Joined {channel_id}");
+                        if let Ok(input) = spotify_manager.lock().await.start_player(guild_id).await
+                        {
+                            vc.play_only_input(input);
+                        }
+                        println!("Joined {channel_id} in {guild_id} guild");
                     });
                 }
             } else {
                 // Bot left voice channel, let's stop player
-                player.pause();
-                println!("Left voice chat");
+                let guild_id = old
+                    .expect("Old vc state should be initialized when leaving the channel")
+                    .guild_id
+                    .expect("Old vc state should contain guild_id when leaving the channel");
+                spotify_manager.lock().await.stop_player(guild_id);
+                println!("Left voice chat in {guild_id} guild");
             }
         }
     }

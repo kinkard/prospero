@@ -9,9 +9,8 @@ Features:
 
 The following env variables (either via set or via `.env` file) sould be set:
 
-- DISCORD_TOKEN
-- SPOTIFY_USERNAME
-- SPOTIFY_PASSWD
+- **DISCORD_TOKEN**
+- **DATA_DIR**
 
 ```sh
 cargo run --release

@@ -1,3 +1,5 @@
+use crate::spotify;
+
 pub(crate) type Error = Box<dyn std::error::Error + Send + Sync>;
 type Context<'a> = poise::Context<'a, (), Error>;
 
@@ -10,7 +12,6 @@ pub(crate) async fn join(ctx: Context<'_>) -> Result<(), Error> {
             .voice_states
             .get(&ctx.author().id)
             .and_then(|voice_state| voice_state.channel_id);
-
         (guild.id, channel_id)
     };
 
@@ -26,7 +27,7 @@ pub(crate) async fn join(ctx: Context<'_>) -> Result<(), Error> {
         .join(guild_id, channel_id)
         .await;
 
-    ctx.reply(format!("Joined voice channel")).await?;
+    ctx.reply("Joined voice channel").await?;
     Ok(())
 }
 
@@ -49,5 +50,47 @@ pub(crate) async fn leave(ctx: Context<'_>) -> Result<(), Error> {
 #[poise::command(slash_command)]
 pub(crate) async fn ping(ctx: Context<'_>) -> Result<(), Error> {
     ctx.reply("Pong!").await?;
+    Ok(())
+}
+
+/// Connect Spotify account to be used by bot.
+/// https://www.spotify.com/us/account/set-device-password/
+#[poise::command(guild_only, slash_command)]
+pub(crate) async fn connect_spotify(
+    ctx: Context<'_>,
+    username: String,
+    password: String,
+) -> Result<(), Error> {
+    let (guild_id, channel_id) = {
+        let guild = ctx.guild().unwrap();
+        let channel_id = guild
+            .voice_states
+            .get(&ctx.author().id)
+            .and_then(|voice_state| voice_state.channel_id);
+        (guild.id, channel_id)
+    };
+
+    spotify::get_manager(ctx.serenity_context())
+        .await
+        .expect("Spotify Manager should be placed in at initialisation")
+        .lock()
+        .await
+        .save_credentials(spotify::Credentials {
+            guild_id,
+            username,
+            password,
+        })?;
+
+    ctx.reply("Spotify account connected successfully.").await?;
+
+    // Finally, if user is in some vc - join it
+    if let Some(channel_id) = channel_id {
+        let _vc_handler = songbird::get(ctx.serenity_context())
+            .await
+            .expect("Songbird Voice client placed in at initialisation.")
+            .join(guild_id, channel_id)
+            .await;
+    }
+
     Ok(())
 }
