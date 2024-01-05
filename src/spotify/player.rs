@@ -80,7 +80,7 @@ impl Player {
 
         let spirc_config = ConnectConfig {
             name: "Prospero".to_string(),
-            device_type: DeviceType::AudioDongle,
+            device_type: DeviceType::GameConsole,
             initial_volume: None,
             has_volume_ctrl: true,
             autoplay: false,
