@@ -1,19 +1,26 @@
 # About
 
-Features:
+Prospero is a minimalistic Spotify Discord bot, inspired by [aoede](https://github.com/codetheweb/aoede).
 
-- Play music from Spotify (requires a Spotify Premium account).
-- Generate a brief overview of what people talked about using automatic speech recognition from OpenAI's Whisper and ChatGPT (to be implemented).
+Once launched and connected to the Discord guild, Prospero can be set up with Spotify account to play from (Spotify Premium is required) via `/connect_spotify` discord command. Credentials for this command can be obtained here - <https://www.spotify.com/us/account/set-device-password/>. After that Prospero will appear as a device and can be controled remotely via Spotify desktop/mobile/web app.
 
 ## Build and run
 
 The following env variables (either via set or via `.env` file) sould be set:
 
 - **DISCORD_TOKEN**
-- **DATA_DIR**
+- **DATA_DIR** - path to the folder where Prospero can store data
 
 ```sh
 cargo run --release
+```
+
+alternatively, Docker image can be used:
+
+```sh
+echo "DISCORD_TOKEN=my discord token" > .env
+echo "DATA_DIR=/storage" >> .env
+docker run --rm --env-file .env -v $PWD:/storage kinkard/prospero
 ```
 
 ## License
