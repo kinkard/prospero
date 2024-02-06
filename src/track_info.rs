@@ -87,14 +87,7 @@ impl TrackInfo {
 impl Display for TrackInfo {
     /// Forms a Markdown link with `[name](source_url)` and duration if available
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        // Limit the name to 58 characters to fit the single line
-        let limit = 58;
-        if self.name.len() > limit {
-            write!(f, "[{}…]", &self.name[..limit - 1])?;
-        } else {
-            write!(f, "[{}]", self.name)?;
-        }
-        write!(f, "({})", self.source)?;
+        write!(f, "[{}]({})", self.name, self.source)?;
 
         if let Some(duration_secs) = self.duration_sec {
             let mins = duration_secs.get() / 60;
@@ -102,5 +95,57 @@ impl Display for TrackInfo {
             write!(f, " {mins}:{secs:02}")?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_track_info_display() {
+        assert_eq!(
+            format!(
+                "{}",
+                TrackInfo {
+                    name: "Test".into(),
+                    source: "https://example.com".into(),
+                    thumbnail_url: None,
+                    duration_sec: NonZeroU32::new(123),
+                    added_by: "TestUser".into(),
+                }
+            ),
+            "[Test](https://example.com) 2:03"
+        );
+
+        // No duration
+        assert_eq!(
+            format!(
+                "{}",
+                TrackInfo {
+                    name: "Test".into(),
+                    source: "https://example.com".into(),
+                    thumbnail_url: None,
+                    duration_sec: None,
+                    added_by: "TestUser".into(),
+                }
+            ),
+            "[Test](https://example.com)"
+        );
+
+        // multi-byte characters in name
+        assert_eq!(
+            format!(
+                "{}",
+                TrackInfo {
+                    name: "Нейромонах Феофан — Притоптать | Neuromonakh Feofan".into(),
+                    source: "https://www.youtube.com/watch?v=HNpLuXOg7xQ".into(),
+                    thumbnail_url: None,
+                    duration_sec: NonZeroU32::new(210),
+                    added_by: "TestUser".into(),
+                }
+            ),
+            "[Нейромонах Феофан — Притоптать | Neuromonakh Feofan](https://www.youtube.com/watch?v=HNpLuXOg7xQ) 3:30"
+        );
     }
 }
