@@ -6,8 +6,7 @@ Prospero is a minimalistic Discord music bot, inspired by [aoede](https://github
 
 The following env variables (either via set or via `.env` file) sould be set:
 
-- **DISCORD_TOKEN**
-- **DATA_DIR** - path to the folder where Prospero can store data
+- **DISCORD_TOKEN** - Discord bot token
 
 ```sh
 cargo run --release
