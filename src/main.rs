@@ -2,6 +2,7 @@ use std::env;
 
 use serenity::{client::Client, prelude::GatewayIntents};
 use songbird::SerenityInit;
+use tracing::{info, warn};
 
 mod commands;
 mod events;
@@ -9,9 +10,11 @@ mod http_client;
 
 #[tokio::main]
 async fn main() {
+    tracing_subscriber::fmt::init();
+
     // Load env varialbes from .env is any
     if let Err(err) = dotenv::dotenv() {
-        println!("Skipping .env file because of {err}");
+        info!("Skipping .env file because of {err}");
     }
 
     // Configure the client with your Discord bot token in the environment.
@@ -50,5 +53,5 @@ async fn main() {
     let _ = client
         .start()
         .await
-        .map_err(|why| println!("Client ended: {:?}", why));
+        .map_err(|why| warn!("Client stopped: {:?}", why));
 }

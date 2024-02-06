@@ -11,6 +11,8 @@ authors = ["Stepan Kizim <stsiapan.kizim@gmail.com>"]
 # General
 dotenv = "0.15"
 tokio = { version = "1", features = ["rt-multi-thread"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
 # Discord dependencies
 poise = "0.6.1"
 serenity = { version = "0.12", default-features = false, features = [
