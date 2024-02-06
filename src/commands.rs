@@ -1,21 +1,12 @@
 use poise::CreateReply;
 use serenity::builder::CreateEmbed;
-use songbird::{
-    input::{AuxMetadata, Compose, YoutubeDl},
-    tracks::TrackQueue,
-};
+use songbird::input::{Compose, YoutubeDl};
 use tracing::{info, warn};
 
-use crate::http_client;
+use crate::{http_client, track_info};
 
 pub(crate) type Error = Box<dyn std::error::Error + Send + Sync>;
 type Context<'a> = poise::Context<'a, (), Error>;
-
-struct AuxMetadataKey;
-
-impl songbird::typemap::TypeMapKey for AuxMetadataKey {
-    type Value = AuxMetadata;
-}
 
 fn get_author_vc(ctx: &Context<'_>) -> Option<serenity::model::id::ChannelId> {
     ctx.guild()?
@@ -98,13 +89,13 @@ pub(crate) async fn play(ctx: Context<'_>, url: String) -> Result<(), Error> {
     };
 
     let mut src = YoutubeDl::new(http_client, url.clone());
-    let metadata = src.aux_metadata().await.unwrap_or_else(|err| {
-        warn!("Failed to get metadata for {url}: {err}");
-        AuxMetadata {
-            source_url: Some(url.clone()),
-            ..Default::default()
+    let metadata = match src.aux_metadata().await {
+        Ok(meta) => Some(meta),
+        Err(err) => {
+            warn!("Failed to get metadata for {url}: {err}");
+            None
         }
-    });
+    };
 
     let mut vc = vc.lock().await;
     let track_handle = vc.enqueue(src.into()).await;
@@ -114,15 +105,14 @@ pub(crate) async fn play(ctx: Context<'_>, url: String) -> Result<(), Error> {
         .typemap()
         .write()
         .await
-        .insert::<AuxMetadataKey>(metadata);
+        .insert::<track_info::TrackInfoKey>(track_info::TrackInfo::new(
+            url,
+            metadata,
+            ctx.author().name.clone(),
+        ));
 
-    let queue_info = format_queue(vc.queue()).await;
-    ctx.send(
-        CreateReply::default()
-            .content(format!("Added {url} to the queue"))
-            .embed(queue_info),
-    )
-    .await?;
+    let queue_info = form_currently_played(vc.queue().current_queue()).await;
+    ctx.send(CreateReply::default().embed(queue_info)).await?;
 
     Ok(())
 }
@@ -141,8 +131,15 @@ pub(crate) async fn skip(ctx: Context<'_>) -> Result<(), Error> {
     };
 
     let vc = vc.lock().await;
+
+    // Unfortunately, `queue().skip()` doesn't update queue immidiately, so skip(1) is required
+    // here to show the correct queue info.
+    // And instead of relying on this behavior we form info *before* the skipping the track
+    let queue_info = form_currently_played(vc.queue().current_queue().into_iter().skip(1)).await;
+    ctx.send(CreateReply::default().embed(queue_info)).await?;
+
     let _ = vc.queue().skip();
-    ctx.reply("Skipped the current song").await?;
+
     Ok(())
 }
 
@@ -163,39 +160,36 @@ pub(crate) async fn stop(ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
-fn format_metadata(meta: &AuxMetadata) -> String {
-    let mut str = String::new();
+async fn form_currently_played<It>(tracks: It) -> CreateEmbed
+where
+    It: IntoIterator<Item = songbird::tracks::TrackHandle>,
+{
+    let mut tracks = tracks.into_iter();
 
-    // Use the title if available, otherwise use the source URL
-    if let Some(title) = &meta.title {
-        str.push_str(&title);
-    } else if let Some(source) = &meta.source_url {
-        str.push_str(&source);
-    } else {
-        str.push_str("Unknown");
-    }
-    str = str.replace("rt_podcast", "Радио-Т ");
-
-    // Append duration in mm:ss format if available
-    if let Some(duration) = &meta.duration {
-        let duration_secs = duration.as_secs();
-        let mins = duration_secs / 60;
-        let secs = duration_secs % 60;
-        str.push_str(&format!(" {mins}:{secs:02}"));
-    }
-
-    str
-}
-
-async fn format_queue(queue: &TrackQueue) -> CreateEmbed {
-    let mut queue_str = String::new();
-    for track in queue.current_queue() {
+    // Use the first track in the queue to form the embed
+    let embed = if let Some(track) = tracks.next() {
         let typemap = track.typemap().read().await;
-        let description = typemap.get::<AuxMetadataKey>().unwrap();
+        typemap
+            .get::<track_info::TrackInfoKey>()
+            .unwrap()
+            .into_embed()
+            .title("Now Playing")
+    } else {
+        CreateEmbed::default().title("Nothing to play! Add new tracks with `/play` command")
+    };
+
+    // and then add all the other tracks to the description
+    let mut next_str = String::new();
+    while let Some(track) = tracks.next() {
+        let typemap = track.typemap().read().await;
+        let description = typemap.get::<track_info::TrackInfoKey>().unwrap();
 
         use std::fmt::Write;
-        let _ = write!(queue_str, "- {}\n", &format_metadata(description));
+        let _ = write!(next_str, "- {description}\n");
     }
-
-    CreateEmbed::default().field("Queue:", queue_str, false)
+    if !next_str.is_empty() {
+        embed.field("Next:", next_str, false)
+    } else {
+        embed
+    }
 }

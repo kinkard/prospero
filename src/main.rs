@@ -7,6 +7,7 @@ use tracing::{info, warn};
 mod commands;
 mod events;
 mod http_client;
+mod track_info;
 
 #[tokio::main]
 async fn main() {
