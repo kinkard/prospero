@@ -1,0 +1,54 @@
+kind: pipeline
+name: Build prospero
+type: kubernetes
+
+
+steps:
+- name: build 
+  image: plugins/docker
+  settings:
+    username: 
+      from_secret: docker_username
+    password:
+      from_secret: docker_password
+    repo: maxsurm/prospero
+    tags: ${DRONE_COMMIT_SHA}
+
+- name: Notification
+  image: plugins/webhook
+  settings:
+    urls:
+      from_secret: discord_notif
+    content_type: application/json
+    template: |
+      {
+        "username": "CI/CD",
+        "avatar_url": "https://avatars.githubusercontent.com/u/2181346?s=200&v=4",
+        "content": "User: ${DRONE_COMMIT_AUTHOR}, push commit with message: ${DRONE_COMMIT_MESSAGE}\nDeployment status for new version of Prospero Bot is: ${DRONE_BUILD_STATUS}"
+      }
+  when:
+    status:
+    - failure
+    - success
+
+---
+kind: pipeline
+name: Deploy prospero
+type: kubernetes
+
+steps:
+- name: helm_deploy
+  image: alpine/k8s:1.24.13
+  commands:
+  - mkdir ~/.kube
+  - echo $k8s_config | base64 -d > ~/.kube/config
+  - helm upgrade --set image.tag=${DRONE_COMMIT_SHA} --namespace=prospero prospero helm/prospero
+
+  environment:
+    k8s_config:
+      from_secret: k8s_config
+
+trigger:
+  event:
+    include:
+    - custom
