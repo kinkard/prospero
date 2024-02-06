@@ -35,6 +35,8 @@ async fn main() {
                 commands::leave(),
                 commands::ping(),
                 commands::play(),
+                commands::skip(),
+                commands::stop(),
             ],
             ..Default::default()
         })

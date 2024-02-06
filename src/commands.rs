@@ -55,6 +55,7 @@ pub(crate) async fn ping(ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
+/// Play a song from a URL
 #[poise::command(guild_only, slash_command)]
 pub(crate) async fn play(ctx: Context<'_>, url: String) -> Result<(), Error> {
     info!("{} requested to play {url}", ctx.author().name);
@@ -66,6 +67,9 @@ pub(crate) async fn play(ctx: Context<'_>, url: String) -> Result<(), Error> {
         return Ok(());
     }
 
+    let http_client = http_client::get(ctx.serenity_context())
+        .await
+        .expect("HttpClient should be inserted in at initialisation");
     let songbird = songbird::get(ctx.serenity_context())
         .await
         .expect("Songbird Voice client placed in at initialisation.");
@@ -84,13 +88,50 @@ pub(crate) async fn play(ctx: Context<'_>, url: String) -> Result<(), Error> {
 
     let mut vc = vc.lock().await;
 
-    ctx.reply(format!("Playing {url}")).await?;
+    if vc.queue().is_empty() {
+        ctx.reply(format!("Playing {url}")).await?;
+    } else {
+        ctx.reply(format!("Enqueued {url}")).await?;
+    }
 
-    let http_client = http_client::get(ctx.serenity_context())
-        .await
-        .expect("HttpClient should be inserted in at initialisation");
     let src = YoutubeDl::new(http_client, url);
-    let _ = vc.play_only_input(src.into());
+    let _ = vc.enqueue(src.into()).await;
 
+    Ok(())
+}
+
+/// Skip the current song
+#[poise::command(guild_only, slash_command)]
+pub(crate) async fn skip(ctx: Context<'_>) -> Result<(), Error> {
+    let guild_id = ctx.guild().unwrap().id;
+    let songbird = songbird::get(ctx.serenity_context())
+        .await
+        .expect("Songbird Voice client placed in at initialisation.");
+
+    let Some(vc) = songbird.get(guild_id) else {
+        ctx.reply("I'm not in a voice channel").await?;
+        return Ok(());
+    };
+
+    let vc = vc.lock().await;
+    let _ = vc.queue().skip();
+    ctx.reply("Skipped the current song").await?;
+    Ok(())
+}
+
+/// Stop playing and clear the queue
+#[poise::command(guild_only, slash_command)]
+pub(crate) async fn stop(ctx: Context<'_>) -> Result<(), Error> {
+    let guild_id = ctx.guild().unwrap().id;
+    let songbird = songbird::get(ctx.serenity_context())
+        .await
+        .expect("Songbird Voice client placed in at initialisation.");
+
+    if let Some(vc) = songbird.get(guild_id) {
+        let vc = vc.lock().await;
+        vc.queue().stop();
+    };
+
+    ctx.reply("Stopped playing and cleared the queue").await?;
     Ok(())
 }
