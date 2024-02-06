@@ -1,13 +1,11 @@
-use std::{env, path::PathBuf, sync::Arc};
+use std::env;
 
 use serenity::{client::Client, prelude::GatewayIntents};
 use songbird::SerenityInit;
-use tokio::sync::Mutex;
 
 mod commands;
 mod events;
 mod http_client;
-mod spotify;
 
 #[tokio::main]
 async fn main() {
@@ -33,7 +31,6 @@ async fn main() {
                 commands::join(),
                 commands::leave(),
                 commands::ping(),
-                commands::connect_spotify(),
                 commands::play(),
             ],
             ..Default::default()
@@ -42,18 +39,9 @@ async fn main() {
 
     let intents = GatewayIntents::non_privileged() | GatewayIntents::MESSAGE_CONTENT;
 
-    let data_dir = env::var("DATA_DIR").expect("Expected path to DATA in the environment");
-    let mut db_path = PathBuf::from(data_dir);
-    db_path.push("db.sqlite");
-
-    let manager = Arc::new(Mutex::new(
-        spotify::Manager::new(&db_path).expect("Failed to create spotify manager"),
-    ));
-
     let mut client = Client::builder(&token, intents)
         .event_handler(events::Handler)
         .framework(framework)
-        .type_map_insert::<spotify::ManagerKey>(manager)
         .type_map_insert::<http_client::HttpClientKey>(http_client::HttpClient::new())
         .register_songbird()
         .await
