@@ -1,10 +1,21 @@
-use songbird::input::YoutubeDl;
-use tracing::info;
+use poise::CreateReply;
+use serenity::builder::CreateEmbed;
+use songbird::{
+    input::{AuxMetadata, Compose, YoutubeDl},
+    tracks::TrackQueue,
+};
+use tracing::{info, warn};
 
 use crate::http_client;
 
 pub(crate) type Error = Box<dyn std::error::Error + Send + Sync>;
 type Context<'a> = poise::Context<'a, (), Error>;
+
+struct AuxMetadataKey;
+
+impl songbird::typemap::TypeMapKey for AuxMetadataKey {
+    type Value = AuxMetadata;
+}
 
 fn get_author_vc(ctx: &Context<'_>) -> Option<serenity::model::id::ChannelId> {
     ctx.guild()?
@@ -86,16 +97,32 @@ pub(crate) async fn play(ctx: Context<'_>, url: String) -> Result<(), Error> {
         }
     };
 
+    let mut src = YoutubeDl::new(http_client, url.clone());
+    let metadata = src.aux_metadata().await.unwrap_or_else(|err| {
+        warn!("Failed to get metadata for {url}: {err}");
+        AuxMetadata {
+            source_url: Some(url.clone()),
+            ..Default::default()
+        }
+    });
+
     let mut vc = vc.lock().await;
+    let track_handle = vc.enqueue(src.into()).await;
 
-    if vc.queue().is_empty() {
-        ctx.reply(format!("Playing {url}")).await?;
-    } else {
-        ctx.reply(format!("Enqueued {url}")).await?;
-    }
+    // Attach description to the track handle so we can display each entry in the queue
+    track_handle
+        .typemap()
+        .write()
+        .await
+        .insert::<AuxMetadataKey>(metadata);
 
-    let src = YoutubeDl::new(http_client, url);
-    let _ = vc.enqueue(src.into()).await;
+    let queue_info = format_queue(vc.queue()).await;
+    ctx.send(
+        CreateReply::default()
+            .content(format!("Added {url} to the queue"))
+            .embed(queue_info),
+    )
+    .await?;
 
     Ok(())
 }
@@ -134,4 +161,41 @@ pub(crate) async fn stop(ctx: Context<'_>) -> Result<(), Error> {
 
     ctx.reply("Stopped playing and cleared the queue").await?;
     Ok(())
+}
+
+fn format_metadata(meta: &AuxMetadata) -> String {
+    let mut str = String::new();
+
+    // Use the title if available, otherwise use the source URL
+    if let Some(title) = &meta.title {
+        str.push_str(&title);
+    } else if let Some(source) = &meta.source_url {
+        str.push_str(&source);
+    } else {
+        str.push_str("Unknown");
+    }
+    str = str.replace("rt_podcast", "Радио-Т ");
+
+    // Append duration in mm:ss format if available
+    if let Some(duration) = &meta.duration {
+        let duration_secs = duration.as_secs();
+        let mins = duration_secs / 60;
+        let secs = duration_secs % 60;
+        str.push_str(&format!(" {mins}:{secs:02}"));
+    }
+
+    str
+}
+
+async fn format_queue(queue: &TrackQueue) -> CreateEmbed {
+    let mut queue_str = String::new();
+    for track in queue.current_queue() {
+        let typemap = track.typemap().read().await;
+        let description = typemap.get::<AuxMetadataKey>().unwrap();
+
+        use std::fmt::Write;
+        let _ = write!(queue_str, "- {}\n", &format_metadata(description));
+    }
+
+    CreateEmbed::default().field("Queue:", queue_str, false)
 }
