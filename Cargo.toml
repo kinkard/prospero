@@ -12,7 +12,7 @@ authors = ["Stepan Kizim <stsiapan.kizim@gmail.com>"]
 dotenv = "0.15"
 tokio = { version = "1", features = ["rt-multi-thread"] }
 # Discord dependencies
-poise = "0.6.1-rc1"
+poise = "0.6.1"
 serenity = { version = "0.12", default-features = false, features = [
   "cache", "voice", "rustls_backend"
 ] }
