@@ -57,17 +57,11 @@ pub(crate) async fn ping(ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
-/// Play a song from a URL
+/// Play a song from a URL or search query
 #[poise::command(guild_only, slash_command)]
-pub(crate) async fn play(ctx: Context<'_>, url: String) -> Result<(), Error> {
-    info!("{} requested to play {url}", ctx.author().name);
+pub(crate) async fn play(ctx: Context<'_>, query: String) -> Result<(), Error> {
+    info!("{} requested to play '{query}'", ctx.author().name);
     let guild_id = ctx.guild().unwrap().id;
-
-    if !url.starts_with("http") {
-        ctx.reply("Must provide a valid URL that starts with `http`")
-            .await?;
-        return Ok(());
-    }
 
     let http_client = http_client::get(ctx.serenity_context())
         .await
@@ -88,11 +82,18 @@ pub(crate) async fn play(ctx: Context<'_>, url: String) -> Result<(), Error> {
         }
     };
 
-    let mut src = YoutubeDl::new(http_client, url.clone());
+    // yt-dlp is able to play from URLs and search queries in YouTube
+    let ytdlp_query = if query.starts_with("http") {
+        query.clone()
+    } else {
+        format!("ytsearch:{}", query)
+    };
+
+    let mut src = YoutubeDl::new(http_client, ytdlp_query);
     let metadata = match src.aux_metadata().await {
         Ok(meta) => Some(meta),
         Err(err) => {
-            warn!("Failed to get metadata for {url}: {err}");
+            warn!("Failed to get metadata for '{query}': {err}");
             None
         }
     };
@@ -106,7 +107,7 @@ pub(crate) async fn play(ctx: Context<'_>, url: String) -> Result<(), Error> {
         .write()
         .await
         .insert::<track_info::TrackInfoKey>(track_info::TrackInfo::new(
-            url,
+            query,
             metadata,
             ctx.author().name.clone(),
         ));

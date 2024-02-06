@@ -15,11 +15,12 @@ impl songbird::typemap::TypeMapKey for TrackInfoKey {
     type Value = TrackInfo;
 }
 
+#[derive(Debug, PartialEq)]
 pub(crate) struct TrackInfo {
     /// Name or title of the track
     name: Box<str>,
     /// Source URL of the track
-    source: Box<str>,
+    source_url: Box<str>,
     /// Thumbnail url of the track
     thumbnail_url: Option<Box<str>>,
     /// Track duration in seconds if available. For infinite streams it is None
@@ -29,11 +30,19 @@ pub(crate) struct TrackInfo {
 }
 
 impl TrackInfo {
-    pub(crate) fn new(url: String, meta: Option<AuxMetadata>, added_by: String) -> Self {
-        let source = url.into_boxed_str();
+    pub(crate) fn new(query: String, meta: Option<AuxMetadata>, added_by: String) -> Self {
         let added_by = added_by.into_boxed_str();
 
         if let Some(meta) = meta {
+            let source_url = if query.starts_with("http") {
+                query
+            } else if let Some(url) = meta.source_url {
+                url
+            } else {
+                format!("https://www.youtube.com/results?search_query={}", query)
+            }
+            .into_boxed_str();
+
             let name = meta
                 .title
                 .map(|name| {
@@ -44,11 +53,11 @@ impl TrackInfo {
                     }
                 })
                 .map(String::into_boxed_str)
-                .unwrap_or_else(|| source.clone());
+                .unwrap_or_else(|| source_url.clone());
 
             Self {
                 name,
-                source,
+                source_url,
                 thumbnail_url: meta.thumbnail.map(String::into_boxed_str),
                 duration_sec: meta
                     .duration
@@ -57,9 +66,12 @@ impl TrackInfo {
                 added_by,
             }
         } else {
+            // If metadata is not available, use the query as the name and source URL
+            let source = query.into_boxed_str();
+
             Self {
                 name: source.clone(),
-                source,
+                source_url: source,
                 thumbnail_url: None,
                 duration_sec: None,
                 added_by,
@@ -87,7 +99,7 @@ impl TrackInfo {
 impl Display for TrackInfo {
     /// Forms a Markdown link with `[name](source_url)` and duration if available
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "[{}]({})", self.name, self.source)?;
+        write!(f, "[{}]({})", self.name, self.source_url)?;
 
         if let Some(duration_secs) = self.duration_sec {
             let mins = duration_secs.get() / 60;
@@ -101,6 +113,83 @@ impl Display for TrackInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pretty_assertions::assert_eq;
+
+    #[test]
+    fn test_track_info_construct() {
+        // Test with metadata
+        let meta = AuxMetadata {
+            title: Some("Test".into()),
+            source_url: Some("https://example.com".into()),
+            thumbnail: Some("https://example.com/thumb.png".into()),
+            duration: Some(std::time::Duration::from_secs(123)),
+            ..AuxMetadata::default()
+        };
+        let track_info = TrackInfo::new("http://test.com".into(), Some(meta), "TestUser".into());
+        assert_eq!(
+            track_info,
+            TrackInfo {
+                name: "Test".into(),
+                source_url: "http://test.com".into(),
+                thumbnail_url: Some("https://example.com/thumb.png".into()),
+                duration_sec: NonZeroU32::new(123),
+                added_by: "TestUser".into(),
+            }
+        );
+
+        // Test with metadata, but query is not a URL
+        let meta = AuxMetadata {
+            title: Some("Test".into()),
+            source_url: Some("https://example.com".into()),
+            thumbnail: Some("https://example.com/thumb.png".into()),
+            duration: Some(std::time::Duration::from_secs(123)),
+            ..AuxMetadata::default()
+        };
+        let track_info = TrackInfo::new("Test".into(), Some(meta), "TestUser".into());
+        assert_eq!(
+            track_info,
+            TrackInfo {
+                name: "Test".into(),
+                source_url: "https://example.com".into(),
+                thumbnail_url: Some("https://example.com/thumb.png".into()),
+                duration_sec: NonZeroU32::new(123),
+                added_by: "TestUser".into(),
+            }
+        );
+
+        // Test with metadata, but AuxMetadata::source_url is None and query is not a URL
+        let meta = AuxMetadata {
+            title: Some("Test".into()),
+            source_url: None,
+            thumbnail: Some("https://example.com/thumb.png".into()),
+            duration: Some(std::time::Duration::from_secs(123)),
+            ..AuxMetadata::default()
+        };
+        let track_info = TrackInfo::new("Test".into(), Some(meta), "TestUser".into());
+        assert_eq!(
+            track_info,
+            TrackInfo {
+                name: "Test".into(),
+                source_url: "https://www.youtube.com/results?search_query=Test".into(),
+                thumbnail_url: Some("https://example.com/thumb.png".into()),
+                duration_sec: NonZeroU32::new(123),
+                added_by: "TestUser".into(),
+            }
+        );
+
+        // Test without metadata
+        let track_info = TrackInfo::new("http://test.com".into(), None, "TestUser".into());
+        assert_eq!(
+            track_info,
+            TrackInfo {
+                name: "http://test.com".into(),
+                source_url: "http://test.com".into(),
+                thumbnail_url: None,
+                duration_sec: None,
+                added_by: "TestUser".into(),
+            }
+        );
+    }
 
     #[test]
     fn test_track_info_display() {
@@ -109,7 +198,7 @@ mod tests {
                 "{}",
                 TrackInfo {
                     name: "Test".into(),
-                    source: "https://example.com".into(),
+                    source_url: "https://example.com".into(),
                     thumbnail_url: None,
                     duration_sec: NonZeroU32::new(123),
                     added_by: "TestUser".into(),
@@ -124,7 +213,7 @@ mod tests {
                 "{}",
                 TrackInfo {
                     name: "Test".into(),
-                    source: "https://example.com".into(),
+                    source_url: "https://example.com".into(),
                     thumbnail_url: None,
                     duration_sec: None,
                     added_by: "TestUser".into(),
@@ -139,7 +228,7 @@ mod tests {
                 "{}",
                 TrackInfo {
                     name: "Нейромонах Феофан — Притоптать | Neuromonakh Feofan".into(),
-                    source: "https://www.youtube.com/watch?v=HNpLuXOg7xQ".into(),
+                    source_url: "https://www.youtube.com/watch?v=HNpLuXOg7xQ".into(),
                     thumbnail_url: None,
                     duration_sec: NonZeroU32::new(210),
                     added_by: "TestUser".into(),
