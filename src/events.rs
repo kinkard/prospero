@@ -55,6 +55,10 @@ impl EventHandler for Handler {
                     .expect("Songbird Voice client placed in at initialisation.")
                     .get(guild_id)
                 {
+                    let guild_name = &ctx.cache.guild(guild_id).unwrap().name;
+                    let channel_name = &ctx.cache.channel(channel_id).unwrap().name;
+                    println!("Joined '{channel_name}' vc in '{guild_name}' guild");
+
                     // Workaround for a problem introduced in songbird v0.4 as setting input to voice channel
                     // doesn't work without some delay. Seems some internal state is not ready at the moment
                     // of the current event.
@@ -65,7 +69,6 @@ impl EventHandler for Handler {
 
                         // 96k is a default Discord bitrate in guilds without nitro and we pull Spotify with 96k
                         vc.set_bitrate(songbird::driver::Bitrate::BitsPerSecond(96_000));
-                        println!("Joined {channel_id} in {guild_id} guild");
                     });
                 }
             } else {
@@ -74,7 +77,8 @@ impl EventHandler for Handler {
                     .expect("Old vc state should be initialized when leaving the channel")
                     .guild_id
                     .expect("Old vc state should contain guild_id when leaving the channel");
-                println!("Left voice chat in {guild_id} guild");
+                let guild_name = &ctx.cache.guild(guild_id).unwrap().name;
+                println!("Left voice chat in '{guild_name}' guild");
             }
         }
     }
