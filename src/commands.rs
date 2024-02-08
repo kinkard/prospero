@@ -81,7 +81,12 @@ pub(crate) async fn play(ctx: Context<'_>, query: String) -> Result<(), anyhow::
     let mut yt_dlp = match cached_yt_dlp {
         Some(yt_dlp) => yt_dlp,
         None => {
+            let begin = std::time::Instant::now();
             let yt_dlp = YtDlp::new(ctx.data().http_client.clone(), &query).await?;
+            info!(
+                "Fetched {query} from yt-dlp in {}ms",
+                begin.elapsed().as_millis()
+            );
             ctx.data()
                 .yt_dlp_cache
                 .write()
@@ -114,7 +119,9 @@ pub(crate) async fn play(ctx: Context<'_>, query: String) -> Result<(), anyhow::
         ));
 
     let queue_info = form_currently_played(vc.queue().current_queue()).await;
-    ctx.send(CreateReply::default().embed(queue_info)).await?;
+    if let Err(err) = ctx.send(CreateReply::default().embed(queue_info)).await {
+        warn!("Failed to reply: {err}");
+    }
 
     Ok(())
 }
