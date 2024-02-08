@@ -16,9 +16,9 @@ COPY src ./src
 RUN touch -a -m ./src/main.rs
 RUN cargo build --release
 
-# Songbird uses yt-dlp to play music from http(s) link. Unfortunately, `apk add yt-dlp` adds
+# Prospero uses yt-dlp to play music from YouTube. Unfortunately, `apk add yt-dlp` adds
 # too much because of python3 and ffmpeg dependencies, and standalone binaries are built not for
-# musl (alpine linker). So we built is ourselves using the pyinstaller-alpine image.
+# musl (alpine linker). So we built it ourselves using the pyinstaller.
 # Sadly, the official pyinstaller image doesn't support alpine, so we have to use a custom one,
 # built with the following command (see https://github.com/kinkard/pyinstaller-alpine):
 # `docker build https://github.com/pyinstaller/pyinstaller.git -f alpine.dockerfile -t pyinstaller-alpine`
