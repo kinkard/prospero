@@ -9,7 +9,7 @@ authors = ["Stepan Kizim <stsiapan.kizim@gmail.com>"]
 
 [profile.release]
 strip = true
-lto = true
+lto = "thin"
 
 [dependencies]
 # General
