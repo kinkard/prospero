@@ -1273,10 +1273,13 @@ dependencies = [
 name = "prospero"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "dotenv",
  "poise",
  "pretty_assertions",
  "reqwest",
+ "serde",
+ "serde_json",
  "serenity",
  "songbird",
  "symphonia",

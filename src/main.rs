@@ -8,6 +8,7 @@ mod commands;
 mod events;
 mod http_client;
 mod track_info;
+mod yt_dlp;
 
 #[tokio::main]
 async fn main() {

@@ -1,9 +1,9 @@
 use poise::CreateReply;
 use serenity::builder::CreateEmbed;
-use songbird::input::{Compose, YoutubeDl};
+use songbird::input::Compose;
 use tracing::{info, warn};
 
-use crate::{http_client, track_info};
+use crate::{http_client, track_info, yt_dlp::YtDlp};
 
 pub(crate) type Error = Box<dyn std::error::Error + Send + Sync>;
 type Context<'a> = poise::Context<'a, (), Error>;
@@ -82,15 +82,8 @@ pub(crate) async fn play(ctx: Context<'_>, query: String) -> Result<(), Error> {
         }
     };
 
-    // yt-dlp is able to play from URLs and search queries in YouTube
-    let ytdlp_query = if query.starts_with("http") {
-        query.clone()
-    } else {
-        format!("ytsearch:{}", query)
-    };
-
-    let mut src = YoutubeDl::new(http_client, ytdlp_query);
-    let metadata = match src.aux_metadata().await {
+    let mut yt_dlp = YtDlp::new(http_client, &query).await?;
+    let metadata = match yt_dlp.aux_metadata().await {
         Ok(meta) => Some(meta),
         Err(err) => {
             warn!("Failed to get metadata for '{query}': {err}");
@@ -99,7 +92,7 @@ pub(crate) async fn play(ctx: Context<'_>, query: String) -> Result<(), Error> {
     };
 
     let mut vc = vc.lock().await;
-    let track_handle = vc.enqueue(src.into()).await;
+    let track_handle = vc.enqueue(yt_dlp.into()).await;
 
     // Attach description to the track handle so we can display each entry in the queue
     track_handle
