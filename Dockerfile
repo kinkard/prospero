@@ -18,13 +18,14 @@ RUN cargo install --path .
 
 # Songbird uses yt-dlp to play music from http(s) link. Unfortunately, `apk add yt-dlp` adds
 # too much because of python3 and ffmpeg dependencies, and standalone binaries are built not for
-# musl (alpine linker). So we build our own standalone binary to cut docker image size.
-# The `pyinstaller-alpine` should be built before using the following command:
+# musl (alpine linker). So we built is ourselves using the pyinstaller-alpine image.
+# Sadly, the official pyinstaller image doesn't support alpine, so we have to use a custom one,
+# built with the following command (see https://github.com/kinkard/pyinstaller-alpine):
 # `docker build https://github.com/pyinstaller/pyinstaller.git -f alpine.dockerfile -t pyinstaller-alpine`
-FROM pyinstaller-alpine as yt-dlp
+FROM kinkard/pyinstaller-alpine as yt-dlp
 
 # Unfortunately, we can't pass our Dockerfile to the yt-dlp repo context,
-# and `ADD` just doesn't work, so nothing else we can do except git clone
+# and `ADD` just doesn't work, so there is nothing else we can do but clone the repo
 WORKDIR /usr/src
 RUN apk add --no-cache git
 RUN git clone https://github.com/yt-dlp/yt-dlp.git
