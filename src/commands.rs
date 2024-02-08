@@ -3,7 +3,7 @@ use serenity::builder::CreateEmbed;
 use songbird::input::Compose;
 use tracing::{info, warn};
 
-use crate::{track_info, yt_dlp::YtDlp, Context, Error};
+use crate::{track_info, yt_dlp::YtDlp, Context};
 
 fn get_author_vc(ctx: &Context<'_>) -> Option<serenity::model::id::ChannelId> {
     ctx.guild()?
@@ -14,7 +14,7 @@ fn get_author_vc(ctx: &Context<'_>) -> Option<serenity::model::id::ChannelId> {
 
 /// Join my current voice channel
 #[poise::command(guild_only, slash_command)]
-pub(crate) async fn join(ctx: Context<'_>) -> Result<(), Error> {
+pub(crate) async fn join(ctx: Context<'_>) -> Result<(), anyhow::Error> {
     let guild_id = ctx.guild().unwrap().id;
     let Some(channel_id) = get_author_vc(&ctx) else {
         ctx.reply("You should be in a voice channel to invite me")
@@ -34,7 +34,7 @@ pub(crate) async fn join(ctx: Context<'_>) -> Result<(), Error> {
 
 /// Leave voice channel
 #[poise::command(guild_only, slash_command)]
-pub(crate) async fn leave(ctx: Context<'_>) -> Result<(), Error> {
+pub(crate) async fn leave(ctx: Context<'_>) -> Result<(), anyhow::Error> {
     let guild_id = ctx.guild().unwrap().id;
 
     songbird::get(ctx.serenity_context())
@@ -49,14 +49,14 @@ pub(crate) async fn leave(ctx: Context<'_>) -> Result<(), Error> {
 
 /// Ask bot to say "Pong!"
 #[poise::command(slash_command)]
-pub(crate) async fn ping(ctx: Context<'_>) -> Result<(), Error> {
+pub(crate) async fn ping(ctx: Context<'_>) -> Result<(), anyhow::Error> {
     ctx.reply("Pong!").await?;
     Ok(())
 }
 
 /// Play a song from a URL or search query
 #[poise::command(guild_only, slash_command)]
-pub(crate) async fn play(ctx: Context<'_>, query: String) -> Result<(), Error> {
+pub(crate) async fn play(ctx: Context<'_>, query: String) -> Result<(), anyhow::Error> {
     info!("{} requested to play '{query}'", ctx.author().name);
     let guild_id = ctx.guild().unwrap().id;
 
@@ -121,7 +121,7 @@ pub(crate) async fn play(ctx: Context<'_>, query: String) -> Result<(), Error> {
 
 /// Skip the current song
 #[poise::command(guild_only, slash_command)]
-pub(crate) async fn skip(ctx: Context<'_>) -> Result<(), Error> {
+pub(crate) async fn skip(ctx: Context<'_>) -> Result<(), anyhow::Error> {
     let guild_id = ctx.guild().unwrap().id;
     let songbird = songbird::get(ctx.serenity_context())
         .await
@@ -147,7 +147,7 @@ pub(crate) async fn skip(ctx: Context<'_>) -> Result<(), Error> {
 
 /// Stop playing and clear the queue
 #[poise::command(guild_only, slash_command)]
-pub(crate) async fn stop(ctx: Context<'_>) -> Result<(), Error> {
+pub(crate) async fn stop(ctx: Context<'_>) -> Result<(), anyhow::Error> {
     let guild_id = ctx.guild().unwrap().id;
     let songbird = songbird::get(ctx.serenity_context())
         .await

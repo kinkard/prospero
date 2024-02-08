@@ -15,8 +15,7 @@ struct Data {
     http_client: reqwest::Client,
     yt_dlp_cache: RwLock<HashMap<String, yt_dlp::YtDlp>>,
 }
-type Error = Box<dyn std::error::Error + Send + Sync>;
-type Context<'a> = poise::Context<'a, Data, Error>;
+type Context<'a> = poise::Context<'a, Data, anyhow::Error>;
 
 #[tokio::main]
 async fn main() {
@@ -31,12 +30,14 @@ async fn main() {
     let token = env::var("DISCORD_TOKEN").expect("Expected discord token in the environment");
 
     let framework = poise::Framework::builder()
-        .setup(|ctx, _ready, framework: &poise::Framework<Data, Error>| {
-            Box::pin(async move {
-                poise::builtins::register_globally(ctx, &framework.options().commands).await?;
-                Ok(Data::default())
-            })
-        })
+        .setup(
+            |ctx, _ready, framework: &poise::Framework<Data, anyhow::Error>| {
+                Box::pin(async move {
+                    poise::builtins::register_globally(ctx, &framework.options().commands).await?;
+                    Ok(Data::default())
+                })
+            },
+        )
         .options(poise::FrameworkOptions {
             commands: vec![
                 commands::join(),
