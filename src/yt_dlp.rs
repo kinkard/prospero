@@ -12,6 +12,7 @@ use tokio::process::Command;
 const YOUTUBE_DL_COMMAND: &str = "yt-dlp";
 
 /// A thin wrapper around yt-dlp, providing a lazy request to select an audio stream
+#[derive(Clone)]
 pub struct YtDlp {
     http_request: HttpRequest,
     metadata: AuxMetadata,

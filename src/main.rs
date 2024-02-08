@@ -1,14 +1,22 @@
-use std::env;
+use std::{collections::HashMap, env};
 
 use serenity::{client::Client, prelude::GatewayIntents};
 use songbird::SerenityInit;
+use tokio::sync::RwLock;
 use tracing::{info, warn};
 
 mod commands;
 mod events;
-mod http_client;
 mod track_info;
 mod yt_dlp;
+
+#[derive(Default)]
+struct Data {
+    http_client: reqwest::Client,
+    yt_dlp_cache: RwLock<HashMap<String, yt_dlp::YtDlp>>,
+}
+type Error = Box<dyn std::error::Error + Send + Sync>;
+type Context<'a> = poise::Context<'a, Data, Error>;
 
 #[tokio::main]
 async fn main() {
@@ -23,14 +31,12 @@ async fn main() {
     let token = env::var("DISCORD_TOKEN").expect("Expected discord token in the environment");
 
     let framework = poise::Framework::builder()
-        .setup(
-            |ctx, _ready, framework: &poise::Framework<(), commands::Error>| {
-                Box::pin(async move {
-                    poise::builtins::register_globally(ctx, &framework.options().commands).await?;
-                    Ok(())
-                })
-            },
-        )
+        .setup(|ctx, _ready, framework: &poise::Framework<Data, Error>| {
+            Box::pin(async move {
+                poise::builtins::register_globally(ctx, &framework.options().commands).await?;
+                Ok(Data::default())
+            })
+        })
         .options(poise::FrameworkOptions {
             commands: vec![
                 commands::join(),
@@ -49,7 +55,6 @@ async fn main() {
     let mut client = Client::builder(&token, intents)
         .event_handler(events::Handler)
         .framework(framework)
-        .type_map_insert::<http_client::HttpClientKey>(http_client::HttpClient::new())
         .register_songbird()
         .await
         .expect("Failed to create discord client");

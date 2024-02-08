@@ -3,10 +3,7 @@ use serenity::builder::CreateEmbed;
 use songbird::input::Compose;
 use tracing::{info, warn};
 
-use crate::{http_client, track_info, yt_dlp::YtDlp};
-
-pub(crate) type Error = Box<dyn std::error::Error + Send + Sync>;
-type Context<'a> = poise::Context<'a, (), Error>;
+use crate::{track_info, yt_dlp::YtDlp, Context, Error};
 
 fn get_author_vc(ctx: &Context<'_>) -> Option<serenity::model::id::ChannelId> {
     ctx.guild()?
@@ -63,9 +60,6 @@ pub(crate) async fn play(ctx: Context<'_>, query: String) -> Result<(), Error> {
     info!("{} requested to play '{query}'", ctx.author().name);
     let guild_id = ctx.guild().unwrap().id;
 
-    let http_client = http_client::get(ctx.serenity_context())
-        .await
-        .expect("HttpClient should be inserted in at initialisation");
     let songbird = songbird::get(ctx.serenity_context())
         .await
         .expect("Songbird Voice client placed in at initialisation.");
@@ -82,7 +76,21 @@ pub(crate) async fn play(ctx: Context<'_>, query: String) -> Result<(), Error> {
         }
     };
 
-    let mut yt_dlp = YtDlp::new(http_client, &query).await?;
+    // Two separate locks to avoid blocking everything on the long (up to 2s) yt-dlp query
+    let cached_yt_dlp = ctx.data().yt_dlp_cache.read().await.get(&query).cloned();
+    let mut yt_dlp = match cached_yt_dlp {
+        Some(yt_dlp) => yt_dlp,
+        None => {
+            let yt_dlp = YtDlp::new(ctx.data().http_client.clone(), &query).await?;
+            ctx.data()
+                .yt_dlp_cache
+                .write()
+                .await
+                .insert(query.clone(), yt_dlp.clone());
+            yt_dlp
+        }
+    };
+
     let metadata = match yt_dlp.aux_metadata().await {
         Ok(meta) => Some(meta),
         Err(err) => {
