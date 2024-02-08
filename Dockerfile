@@ -14,7 +14,7 @@ RUN cargo build --release
 COPY src ./src
 # Update modified attribute as otherwise cargo won't rebuild it
 RUN touch -a -m ./src/main.rs
-RUN cargo install --path .
+RUN cargo build --release
 
 # Songbird uses yt-dlp to play music from http(s) link. Unfortunately, `apk add yt-dlp` adds
 # too much because of python3 and ffmpeg dependencies, and standalone binaries are built not for
@@ -37,5 +37,5 @@ RUN python3 pyinst.py
 
 FROM alpine as runtime
 COPY --from=yt-dlp /usr/src/yt-dlp/dist/yt-dlp_linux_aarch64 /usr/local/bin/yt-dlp
-COPY --from=builder /usr/local/cargo/bin/prospero /usr/local/bin/prospero
+COPY --from=builder /usr/src/app/target/release/prospero /usr/local/bin/prospero
 CMD ["prospero"]
