@@ -77,35 +77,36 @@ impl EventHandler for Handler {
                 info!("Left voice chat in '{guild_name}' guild");
             }
         } else {
+            println!("Changed voice state!");
             // Check if bot should leave voice channel when everyone left
-            let Some((Some(guild_id), Some(channel_id))) =
-                old.as_ref().map(|old| (old.guild_id, old.channel_id))
-            else {
+            let Some(guild_id) = old.as_ref().and_then(|old| old.guild_id) else {
                 return;
             };
+            println!("Guild ID: {guild_id}");
 
-            let (bot_in_vc, everyone_left, guild_name) = {
+            let bot_left_alone = {
                 let guild = ctx.cache.guild(guild_id).unwrap();
-                let bot_in_vc = guild
+
+                let bot_channel = guild
                     .voice_states
                     .get(&ctx.cache.current_user().id)
-                    .is_some();
-                let everyone_left = guild
+                    .and_then(|voice_state| voice_state.channel_id);
+
+                guild
                     .voice_states
                     .values()
-                    .filter(|voice_state| voice_state.channel_id == Some(channel_id))
-                    .all(|voice_state| voice_state.user_id != ctx.cache.current_user().id);
-                (bot_in_vc, everyone_left, guild.name.clone())
+                    .filter(|voice_state| voice_state.channel_id == bot_channel)
+                    .count()
+                    == 1 // only bot
             };
+            println!("bot_left_alone: {bot_left_alone}");
 
-            if bot_in_vc && everyone_left {
-                info!("Everyone left, leaving voice chat in '{guild_name}' guild");
-                songbird::get(&ctx)
+            if bot_left_alone {
+                let _ = songbird::get(&ctx)
                     .await
                     .expect("Songbird Voice client placed in at initialisation.")
                     .remove(guild_id)
-                    .await
-                    .expect("Bot should be in vc when everyone left");
+                    .await;
             }
         }
     }
