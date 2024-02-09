@@ -84,6 +84,37 @@ impl EventHandler for Handler {
                 let guild_name = &ctx.cache.guild(guild_id).unwrap().name;
                 info!("Left voice chat in '{guild_name}' guild");
             }
+        } else {
+            // Check if bot should leave voice channel when everyone left
+            let Some((Some(guild_id), Some(channel_id))) =
+                old.as_ref().map(|old| (old.guild_id, old.channel_id))
+            else {
+                return;
+            };
+
+            let (bot_in_vc, everyone_left, guild_name) = {
+                let guild = ctx.cache.guild(guild_id).unwrap();
+                let bot_in_vc = guild
+                    .voice_states
+                    .get(&ctx.cache.current_user().id)
+                    .is_some();
+                let everyone_left = guild
+                    .voice_states
+                    .values()
+                    .filter(|voice_state| voice_state.channel_id == Some(channel_id))
+                    .all(|voice_state| voice_state.user_id != ctx.cache.current_user().id);
+                (bot_in_vc, everyone_left, guild.name.clone())
+            };
+
+            if bot_in_vc && everyone_left {
+                info!("Everyone left, leaving voice chat in '{guild_name}' guild");
+                songbird::get(&ctx)
+                    .await
+                    .expect("Songbird Voice client placed in at initialisation.")
+                    .remove(guild_id)
+                    .await
+                    .expect("Bot should be in vc when everyone left");
+            }
         }
     }
 }
