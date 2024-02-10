@@ -77,12 +77,10 @@ impl EventHandler for Handler {
                 info!("Left voice chat in '{guild_name}' guild");
             }
         } else {
-            println!("Changed voice state!");
             // Check if bot should leave voice channel when everyone left
             let Some(guild_id) = old.as_ref().and_then(|old| old.guild_id) else {
                 return;
             };
-            println!("Guild ID: {guild_id}");
 
             let bot_left_alone = {
                 let guild = ctx.cache.guild(guild_id).unwrap();
@@ -96,10 +94,17 @@ impl EventHandler for Handler {
                     .voice_states
                     .values()
                     .filter(|voice_state| voice_state.channel_id == bot_channel)
+                    // Ignore non-members and bots
+                    .filter(|voice_state| {
+                        voice_state
+                            .member
+                            .as_ref()
+                            .map(|member| !member.user.bot)
+                            .unwrap_or(false)
+                    })
                     .count()
-                    == 1 // only bot
+                    == 0
             };
-            println!("bot_left_alone: {bot_left_alone}");
 
             if bot_left_alone {
                 let _ = songbird::get(&ctx)
