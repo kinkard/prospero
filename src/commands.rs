@@ -82,7 +82,17 @@ pub(crate) async fn play(ctx: Context<'_>, query: String) -> Result<(), anyhow::
         Some(yt_dlp) => yt_dlp,
         None => {
             let begin = std::time::Instant::now();
-            let yt_dlp = YtDlp::new(ctx.data().http_client.clone(), &query).await?;
+            let yt_dlp = match YtDlp::new(ctx.data().http_client.clone(), &query).await {
+                Ok(yt_dlp) => yt_dlp,
+                Err(err) => {
+                    warn!("Failed to fetch '{query}' from yt-dlp: {err}");
+                    ctx.reply(format!(
+                        "Found nothing for '{query}'. Please try something else"
+                    ))
+                    .await?;
+                    return Ok(());
+                }
+            };
             info!(
                 "Fetched {query} from yt-dlp in {}ms",
                 begin.elapsed().as_millis()
