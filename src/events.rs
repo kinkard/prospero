@@ -88,6 +88,8 @@ async fn bot_joined_vc(ctx: &Context, _data: &Data, guild_id: GuildId, channel_i
     // 96k is a default Discord bitrate in guilds without nitro and we pull Spotify with 96k
     let mut vc = vc.lock().await;
     vc.set_bitrate(songbird::driver::Bitrate::BitsPerSecond(96_000));
+
+    
 }
 
 /// Called when bot left voice channel
@@ -96,6 +98,8 @@ async fn bot_left_vc(ctx: &Context, data: &Data, guild_id: GuildId) {
         "Left voice chat in '{}' guild",
         &ctx.cache.guild(guild_id).unwrap().name
     );
+
+    data.spotify_manager.lock().await.stop_player(guild_id);
 
     // Let's save yt_dlp_resolver state
     data.yt_dlp_resolver.save_cache().await;

@@ -1,20 +1,22 @@
-use std::env;
+use std::{env, path::PathBuf, sync::Arc};
 
 use serenity::{
     client::{Client, FullEvent},
     prelude::GatewayIntents,
 };
 use songbird::SerenityInit;
+use tokio::sync::Mutex;
 use tracing::{info, warn};
 
 mod commands;
 mod events;
+mod spotify;
 mod track_info;
 mod yt_dlp;
 
-#[derive(Default)]
 struct Data {
     yt_dlp_resolver: yt_dlp::Resolver,
+    spotify_manager: Arc<Mutex<spotify::Manager>>,
 }
 type Context<'a> = poise::Context<'a, Data, anyhow::Error>;
 
@@ -28,10 +30,25 @@ async fn main() {
     }
 
     let data_dir = env::var("DATA_DIR").expect("Expected path to DATA in the environment");
-    let mut data_dir = std::path::PathBuf::from(data_dir);
-    data_dir.push("yt-dlp-cache.json");
+    let data_dir = PathBuf::from(data_dir);
+    if !data_dir.exists() {
+        std::fs::create_dir_all(&data_dir).expect("Failed to create yt-dlp cache directory");
+    }
 
-    // Configure the client with your Discord bot token in the environment.
+    let yt_dlp_resolver = {
+        let mut data_dir = data_dir.clone();
+        data_dir.push("yt-dlp-cache.json");
+        yt_dlp::Resolver::new(data_dir)
+    };
+
+    let spotify_manager = {
+        let mut db_path = data_dir;
+        db_path.push("db.sqlite");
+        Arc::new(Mutex::new(
+            spotify::Manager::new(&db_path).expect("Failed to create spotify manager"),
+        ))
+    };
+
     let token = env::var("DISCORD_TOKEN").expect("Expected discord token in the environment");
 
     let framework = poise::Framework::builder()
@@ -40,7 +57,8 @@ async fn main() {
                 Box::pin(async move {
                     poise::builtins::register_globally(ctx, &framework.options().commands).await?;
                     Ok(Data {
-                        yt_dlp_resolver: yt_dlp::Resolver::new(data_dir),
+                        yt_dlp_resolver,
+                        spotify_manager,
                     })
                 })
             },
@@ -53,6 +71,7 @@ async fn main() {
                 commands::play(),
                 commands::skip(),
                 commands::stop(),
+                commands::connect_spotify(),
             ],
             event_handler: |ctx, event, _framework, data| {
                 Box::pin(async move {

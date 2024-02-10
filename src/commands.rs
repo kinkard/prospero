@@ -3,7 +3,7 @@ use serenity::builder::{CreateEmbed, CreateMessage};
 use songbird::input::Compose;
 use tracing::{info, warn};
 
-use crate::{track_info, Context};
+use crate::{spotify, track_info, Context};
 
 fn get_author_vc(ctx: &Context<'_>) -> Option<serenity::model::id::ChannelId> {
     ctx.guild()?
@@ -51,6 +51,47 @@ pub(crate) async fn leave(ctx: Context<'_>) -> Result<(), anyhow::Error> {
 #[poise::command(slash_command)]
 pub(crate) async fn ping(ctx: Context<'_>) -> Result<(), anyhow::Error> {
     ctx.reply("Pong!").await?;
+    Ok(())
+}
+
+/// Connect Spotify account to be used by bot.
+/// https://www.spotify.com/us/account/set-device-password/
+#[poise::command(guild_only, slash_command)]
+pub(crate) async fn connect_spotify(
+    ctx: Context<'_>,
+    username: String,
+    password: String,
+) -> Result<(), anyhow::Error> {
+    let (guild_id, channel_id) = {
+        let guild = ctx.guild().unwrap();
+        let channel_id = guild
+            .voice_states
+            .get(&ctx.author().id)
+            .and_then(|voice_state| voice_state.channel_id);
+        (guild.id, channel_id)
+    };
+
+    ctx.data()
+        .spotify_manager
+        .lock()
+        .await
+        .save_credentials(spotify::Credentials {
+            guild_id,
+            username: username.clone(),
+            password: password.clone(),
+        })?;
+
+    ctx.reply("Spotify account connected successfully.").await?;
+
+    // Finally, if user is in some vc - join it
+    if let Some(channel_id) = channel_id {
+        let _vc_handler = songbird::get(ctx.serenity_context())
+            .await
+            .expect("Songbird Voice client placed in at initialisation.")
+            .join(guild_id, channel_id)
+            .await;
+    }
+
     Ok(())
 }
 
