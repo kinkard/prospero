@@ -1,13 +1,16 @@
+use anyhow::Context;
 use async_trait::async_trait;
+use futures::stream::{self, StreamExt};
 use reqwest::{
     header::{HeaderName, HeaderValue},
     Client,
 };
 use serde::Deserialize;
 use songbird::input::{AudioStream, AudioStreamError, AuxMetadata, Compose, HttpRequest, Input};
-use std::{collections::HashMap, io::ErrorKind, str::FromStr, time::Duration};
+use std::{collections::HashMap, io::ErrorKind, path::PathBuf, str::FromStr, time::Duration};
 use symphonia::core::io::MediaSource;
-use tokio::process::Command;
+use tokio::{process::Command, sync::RwLock};
+use tracing::{info, warn};
 
 const YOUTUBE_DL_COMMAND: &str = "yt-dlp";
 
@@ -131,6 +134,128 @@ pub(crate) struct YtDlpOutput {
     uploader: Option<String>,
     url: String,
     webpage_url: Option<String>,
+}
+
+#[derive(Default)]
+pub(crate) struct Resolver {
+    cache: RwLock<HashMap<String, YtDlp>>,
+    cache_location: Option<PathBuf>,
+
+    http_client: reqwest::Client,
+}
+
+impl Resolver {
+    const CONCURRENCY: usize = 16;
+
+    /// Creates a new yt-dlp resolver with a cache file
+    pub(crate) fn new(cache_location: PathBuf) -> Self {
+        Self {
+            cache_location: Some(cache_location),
+            ..Default::default()
+        }
+    }
+
+    /// Loads cache from file and fetches all yt-dlp instances
+    pub(crate) async fn load_cache(&self) {
+        let Some(cache_location) = &self.cache_location else {
+            // no-op if cache location is not set
+            return;
+        };
+
+        let keys: Vec<String> = tokio::fs::read_to_string(cache_location)
+            .await
+            .context("Failed to read yt-dlp cache file")
+            .and_then(|readed| {
+                serde_json::from_str(&readed).context("Failed to parse yt-dlp cache json")
+            })
+            .unwrap_or_else(|err| {
+                warn!("{err:#}");
+                Vec::new()
+            });
+        self.update_inner(keys).await;
+    }
+
+    /// Saves cache to file
+    pub(crate) async fn save_cache(&self) {
+        if let Some(cache_location) = &self.cache_location {
+            let serialized = {
+                let cache = self.cache.read().await;
+                let keys = cache.keys().collect::<Vec<_>>();
+                serde_json::to_string(&keys).unwrap()
+            };
+            tokio::fs::write(cache_location, serialized).await.unwrap();
+        }
+    }
+
+    /// Updates all yt-dlp instances in the cache
+    pub(crate) async fn update_cache(&self) {
+        // Request all YtDlp instances anew using the current cache keys
+        let keys = {
+            let cache = self.cache.read().await;
+            cache.keys().cloned().collect::<Vec<_>>()
+        };
+        self.update_inner(keys).await;
+    }
+
+    /// Resolves a query to a yt-dlp instance, caching the result
+    pub(crate) async fn resolve(&self, query: &str) -> Option<YtDlp> {
+        // Two separate locks to avoid blocking everything on the long (up to 2s) yt-dlp query
+        let cached_yt_dlp = self.cache.read().await.get(query).cloned();
+        match cached_yt_dlp {
+            Some(yt_dlp) => Some(yt_dlp),
+            None => {
+                let Some(yt_dlp) = Self::fetch(self.http_client.clone(), query).await else {
+                    return None;
+                };
+
+                self.cache
+                    .write()
+                    .await
+                    .insert(query.to_string(), yt_dlp.clone());
+                Some(yt_dlp)
+            }
+        }
+    }
+
+    /// Inner function to fetch a yt-dlp instance
+    async fn fetch(http_client: reqwest::Client, query: &str) -> Option<YtDlp> {
+        let begin: std::time::Instant = std::time::Instant::now();
+        let yt_dlp = match YtDlp::new(http_client, query).await {
+            Ok(yt_dlp) => yt_dlp,
+            Err(err) => {
+                warn!("Failed to fetch '{query}' from yt-dlp: {err}");
+                return None;
+            }
+        };
+        info!(
+            "Fetched {query} from yt-dlp in {}ms",
+            begin.elapsed().as_millis()
+        );
+        Some(yt_dlp)
+    }
+
+    /// Updates the specified keys in the cache
+    async fn update_inner(&self, keys: Vec<String>) {
+        let items = stream::iter(keys)
+            .map(|query| async move {
+                let yt_dlp = Self::fetch(self.http_client.clone(), &query).await;
+                (query, yt_dlp)
+            })
+            .buffer_unordered(Self::CONCURRENCY)
+            .collect::<Vec<_>>()
+            .await;
+
+        // override existing cache with the new values and drop entry if it failed to fetch
+        // so the following request will try it again instead of using the outdated value
+        let mut cache = self.cache.write().await;
+        for (query, yt_dlp) in items {
+            if let Some(yt_dlp) = yt_dlp {
+                cache.insert(query, yt_dlp);
+            } else {
+                cache.remove(&query);
+            }
+        }
+    }
 }
 
 #[cfg(test)]

@@ -1,8 +1,10 @@
-use std::{collections::HashMap, env};
+use std::env;
 
-use serenity::{client::Client, prelude::GatewayIntents};
+use serenity::{
+    client::{Client, FullEvent},
+    prelude::GatewayIntents,
+};
 use songbird::SerenityInit;
-use tokio::sync::RwLock;
 use tracing::{info, warn};
 
 mod commands;
@@ -12,8 +14,7 @@ mod yt_dlp;
 
 #[derive(Default)]
 struct Data {
-    http_client: reqwest::Client,
-    yt_dlp_cache: RwLock<HashMap<String, yt_dlp::YtDlp>>,
+    yt_dlp_resolver: yt_dlp::Resolver,
 }
 type Context<'a> = poise::Context<'a, Data, anyhow::Error>;
 
@@ -26,6 +27,10 @@ async fn main() {
         info!("Skipping .env file because of {err}");
     }
 
+    let data_dir = env::var("DATA_DIR").expect("Expected path to DATA in the environment");
+    let mut data_dir = std::path::PathBuf::from(data_dir);
+    data_dir.push("yt-dlp-cache.json");
+
     // Configure the client with your Discord bot token in the environment.
     let token = env::var("DISCORD_TOKEN").expect("Expected discord token in the environment");
 
@@ -34,7 +39,9 @@ async fn main() {
             |ctx, _ready, framework: &poise::Framework<Data, anyhow::Error>| {
                 Box::pin(async move {
                     poise::builtins::register_globally(ctx, &framework.options().commands).await?;
-                    Ok(Data::default())
+                    Ok(Data {
+                        yt_dlp_resolver: yt_dlp::Resolver::new(data_dir),
+                    })
                 })
             },
         )
@@ -47,6 +54,20 @@ async fn main() {
                 commands::skip(),
                 commands::stop(),
             ],
+            event_handler: |ctx, event, _framework, data| {
+                Box::pin(async move {
+                    match event {
+                        FullEvent::CacheReady { guilds } => {
+                            events::cache_ready(ctx, data, guilds).await;
+                        }
+                        FullEvent::VoiceStateUpdate { old, new } => {
+                            events::voice_state_update(ctx, data, old, new).await;
+                        }
+                        _ => (),
+                    }
+                    Ok(())
+                })
+            },
             ..Default::default()
         })
         .build();
@@ -54,7 +75,6 @@ async fn main() {
     let intents = GatewayIntents::non_privileged() | GatewayIntents::MESSAGE_CONTENT;
 
     let mut client = Client::builder(&token, intents)
-        .event_handler(events::Handler)
         .framework(framework)
         .register_songbird()
         .await

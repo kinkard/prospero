@@ -18,7 +18,8 @@ alternatively, Docker image can be used:
 make docker
 
 echo "DISCORD_TOKEN=my discord token" > .env
-docker run --rm --env-file .env kinkard/prospero
+echo "DATA_DIR=/storage" >> .env
+docker run --rm --env-file .env -v $PWD:/storage kinkard/prospero
 ```
 
 ## License

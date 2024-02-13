@@ -3,7 +3,7 @@ use serenity::builder::{CreateEmbed, CreateMessage};
 use songbird::input::Compose;
 use tracing::{info, warn};
 
-use crate::{track_info, yt_dlp::YtDlp, Context};
+use crate::{track_info, Context};
 
 fn get_author_vc(ctx: &Context<'_>) -> Option<serenity::model::id::ChannelId> {
     ctx.guild()?
@@ -76,34 +76,12 @@ pub(crate) async fn play(ctx: Context<'_>, query: String) -> Result<(), anyhow::
         }
     };
 
-    // Two separate locks to avoid blocking everything on the long (up to 2s) yt-dlp query
-    let cached_yt_dlp = ctx.data().yt_dlp_cache.read().await.get(&query).cloned();
-    let mut yt_dlp = match cached_yt_dlp {
-        Some(yt_dlp) => yt_dlp,
-        None => {
-            let begin = std::time::Instant::now();
-            let yt_dlp = match YtDlp::new(ctx.data().http_client.clone(), &query).await {
-                Ok(yt_dlp) => yt_dlp,
-                Err(err) => {
-                    warn!("Failed to fetch '{query}' from yt-dlp: {err}");
-                    ctx.reply(format!(
-                        "Found nothing for '{query}'. Please try something else"
-                    ))
-                    .await?;
-                    return Ok(());
-                }
-            };
-            info!(
-                "Fetched {query} from yt-dlp in {}ms",
-                begin.elapsed().as_millis()
-            );
-            ctx.data()
-                .yt_dlp_cache
-                .write()
-                .await
-                .insert(query.clone(), yt_dlp.clone());
-            yt_dlp
-        }
+    let Some(mut yt_dlp) = ctx.data().yt_dlp_resolver.resolve(&query).await else {
+        ctx.reply(format!(
+            "Found nothing for '{query}'. Please try something else"
+        ))
+        .await?;
+        return Ok(());
     };
 
     let metadata = match yt_dlp.aux_metadata().await {

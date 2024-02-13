@@ -15,6 +15,7 @@ lto = "thin"
 # General
 anyhow = "1"
 dotenv = "0.15"
+futures = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread"] }
 tracing = "0.1"
 tracing-subscriber = "0.3"
