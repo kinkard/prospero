@@ -180,7 +180,7 @@ where
         typemap
             .get::<track_info::TrackInfoKey>()
             .unwrap()
-            .into_embed()
+            .build_embed()
             .title("Now Playing")
     } else {
         CreateEmbed::default().title("Nothing to play! Add new tracks with `/play` command")
@@ -188,12 +188,12 @@ where
 
     // and then add all the other tracks to the description
     let mut next_str = String::new();
-    while let Some(track) = tracks.next() {
+    for track in tracks {
         let typemap = track.typemap().read().await;
         let description = typemap.get::<track_info::TrackInfoKey>().unwrap();
 
         use std::fmt::Write;
-        let _ = write!(next_str, "- {description}\n");
+        let _ = writeln!(next_str, "- {description}");
     }
     if !next_str.is_empty() {
         embed.field("Next:", next_str, false)

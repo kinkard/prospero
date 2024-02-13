@@ -80,7 +80,7 @@ impl TrackInfo {
     }
 
     /// Creates Discord embed with the track info
-    pub(crate) fn into_embed(&self) -> CreateEmbed {
+    pub(crate) fn build_embed(&self) -> CreateEmbed {
         let mut embed = CreateEmbed::default()
             .description(format!("{self}"))
             .color(Colour::RED)
