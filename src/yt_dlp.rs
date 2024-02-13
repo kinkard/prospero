@@ -13,13 +13,13 @@ const YOUTUBE_DL_COMMAND: &str = "yt-dlp";
 
 /// A thin wrapper around yt-dlp, providing a lazy request to select an audio stream
 #[derive(Clone)]
-pub struct YtDlp {
+pub(crate) struct YtDlp {
     http_request: HttpRequest,
     metadata: AuxMetadata,
 }
 
 impl YtDlp {
-    pub async fn new(client: Client, url: &str) -> Result<Self, AudioStreamError> {
+    pub(crate) async fn new(client: Client, url: &str) -> Result<Self, AudioStreamError> {
         let yt_dlp_output = Self::query(url).await?;
 
         let headers = yt_dlp_output
@@ -117,21 +117,20 @@ impl Compose for YtDlp {
 }
 
 #[derive(Deserialize)]
-pub struct YtDlpOutput {
-    pub artist: Option<String>,
-    pub album: Option<String>,
-    pub channel: Option<String>,
-    pub duration: Option<f64>,
-    pub filesize: Option<u64>,
-    pub http_headers: Option<HashMap<String, String>>,
-    pub release_date: Option<String>,
-    pub thumbnail: Option<String>,
-    pub title: Option<String>,
-    pub track: Option<String>,
-    pub upload_date: Option<String>,
-    pub uploader: Option<String>,
-    pub url: String,
-    pub webpage_url: Option<String>,
+pub(crate) struct YtDlpOutput {
+    artist: Option<String>,
+    album: Option<String>,
+    channel: Option<String>,
+    duration: Option<f64>,
+    filesize: Option<u64>,
+    http_headers: Option<HashMap<String, String>>,
+    release_date: Option<String>,
+    thumbnail: Option<String>,
+    title: Option<String>,
+    upload_date: Option<String>,
+    uploader: Option<String>,
+    url: String,
+    webpage_url: Option<String>,
 }
 
 #[cfg(test)]
