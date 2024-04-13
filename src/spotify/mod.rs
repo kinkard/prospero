@@ -1,9 +1,14 @@
-use std::{collections::HashMap, path::Path};
+use std::{collections::HashMap, path::Path, sync::Arc};
 
 use anyhow::Context;
-use librespot::core::{spotify_id::SpotifyItemType, SpotifyId};
+use async_trait::async_trait;
+use librespot::{
+    core::{spotify_id::SpotifyItemType, SpotifyId},
+    playback::player::Player,
+};
 use serenity::all::GuildId;
-use songbird::input::Input;
+use songbird::input::{AudioStream, AudioStreamError, AuxMetadata, Compose, Input};
+use symphonia::core::io::MediaSource;
 
 mod player;
 mod storage;
@@ -85,6 +90,38 @@ fn resolve(query: &str) -> Option<Result<SpotifyId, anyhow::Error>> {
             }
         })
     })
+}
+
+struct Track {
+    id: SpotifyId,
+    player: Arc<Player>,
+}
+
+impl From<Track> for Input {
+    fn from(val: Track) -> Self {
+        Input::Lazy(Box::new(val))
+    }
+}
+
+#[async_trait]
+impl Compose for Track {
+    fn create(&mut self) -> Result<AudioStream<Box<dyn MediaSource>>, AudioStreamError> {
+        Err(AudioStreamError::Unsupported)
+    }
+
+    async fn create_async(
+        &mut self,
+    ) -> Result<AudioStream<Box<dyn MediaSource>>, AudioStreamError> {
+        todo!()
+    }
+
+    fn should_create_async(&self) -> bool {
+        true
+    }
+
+    async fn aux_metadata(&mut self) -> Result<AuxMetadata, AudioStreamError> {
+        todo!()
+    }
 }
 
 #[cfg(test)]
