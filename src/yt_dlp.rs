@@ -1,3 +1,12 @@
+use std::{
+    collections::HashMap,
+    io::ErrorKind,
+    path::PathBuf,
+    str::FromStr,
+    sync::atomic::{AtomicU64, Ordering},
+    time::Duration,
+};
+
 use anyhow::Context;
 use async_trait::async_trait;
 use futures::stream::{self, StreamExt};
@@ -7,7 +16,6 @@ use reqwest::{
 };
 use serde::Deserialize;
 use songbird::input::{AudioStream, AudioStreamError, AuxMetadata, Compose, HttpRequest, Input};
-use std::{collections::HashMap, io::ErrorKind, path::PathBuf, str::FromStr, time::Duration};
 use symphonia::core::io::MediaSource;
 use tokio::{process::Command, sync::RwLock};
 use tracing::{info, warn};
@@ -140,12 +148,15 @@ pub(crate) struct YtDlpOutput {
 pub(crate) struct Resolver {
     cache: RwLock<HashMap<String, YtDlp>>,
     cache_location: Option<PathBuf>,
+    /// Unix timestamp of the last time the cache was updated
+    last_update: AtomicU64,
 
     http_client: reqwest::Client,
 }
 
 impl Resolver {
-    const CONCURRENCY: usize = 16;
+    const CONCURRENCY: usize = 8;
+    const CACHE_UPDATE_INTERVAL_SEC: u64 = 24 * 60 * 60;
 
     /// Creates a new yt-dlp resolver with a cache file
     pub(crate) fn new(cache_location: PathBuf) -> Self {
@@ -161,6 +172,18 @@ impl Resolver {
             // no-op if cache location is not set
             return;
         };
+
+        let last_update = self.last_update.load(Ordering::Relaxed);
+        let unix_now = std::time::UNIX_EPOCH
+            .elapsed()
+            .map(|t| t.as_secs())
+            // if by any chance this failed we will just update the cache
+            .unwrap_or(last_update + Self::CACHE_UPDATE_INTERVAL_SEC);
+        if unix_now - last_update < Self::CACHE_UPDATE_INTERVAL_SEC {
+            // no-op if the cache is up to date
+            return;
+        }
+        self.last_update.store(unix_now, Ordering::Relaxed);
 
         let keys: Vec<String> = tokio::fs::read_to_string(cache_location)
             .await
