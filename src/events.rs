@@ -9,6 +9,8 @@ use tracing::{info, warn};
 
 use crate::Data;
 
+/// Invoked once, quickly after bot started, when the cache has received and inserted all data
+/// from guilds. Can be considered as an entry point for all preparations.
 pub(crate) async fn cache_ready(ctx: &Context, data: &Data, guilds: &[GuildId]) {
     let self_user_id = {
         let self_user = ctx.cache.current_user();
@@ -44,6 +46,7 @@ pub(crate) async fn cache_ready(ctx: &Context, data: &Data, guilds: &[GuildId]) 
     data.yt_dlp_resolver.load_cache().await;
 }
 
+/// Invoked when a user joins, leaves or moves to a voice channel.
 pub(crate) async fn voice_state_update(
     ctx: &Context,
     data: &Data,
@@ -65,7 +68,7 @@ pub(crate) async fn voice_state_update(
     }
 }
 
-/// Called when bot joined or was moved into a new voice channel
+/// Invoked when bot joined or was moved into a new voice channel
 async fn bot_joined_vc(ctx: &Context, _data: &Data, guild_id: GuildId, channel_id: ChannelId) {
     // Bot joined or was moved into a new voice channel, need to setup the vc.
     // But as we deal with the events, it might happen that we already left vc at the moment
@@ -90,7 +93,7 @@ async fn bot_joined_vc(ctx: &Context, _data: &Data, guild_id: GuildId, channel_i
     vc.set_bitrate(songbird::driver::Bitrate::BitsPerSecond(96_000));
 }
 
-/// Called when bot left voice channel
+/// Invoked when bot left voice channel
 async fn bot_left_vc(ctx: &Context, data: &Data, guild_id: GuildId) {
     info!(
         "Left voice chat in '{}' guild",
@@ -101,7 +104,7 @@ async fn bot_left_vc(ctx: &Context, data: &Data, guild_id: GuildId) {
     data.yt_dlp_resolver.save_cache().await;
 }
 
-/// Called when user joined a voice channel
+/// Invoked when user joined a voice channel
 async fn user_joined_vc(ctx: &Context, data: &Data, guild_id: GuildId, _channel_id: ChannelId) {
     let users_in_vc = {
         let guild = ctx.cache.guild(guild_id).unwrap();
@@ -115,7 +118,7 @@ async fn user_joined_vc(ctx: &Context, data: &Data, guild_id: GuildId, _channel_
     }
 }
 
-/// Called when user left a voice channel
+/// Invoked when user left a voice channel
 async fn user_left_vc(ctx: &Context, _data: &Data, guild_id: GuildId) {
     // Check if bot should leave voice channel when everyone left
     let bot_left_alone = {
