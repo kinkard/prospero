@@ -173,18 +173,6 @@ impl Resolver {
             return;
         };
 
-        let last_update = self.last_update.load(Ordering::Relaxed);
-        let unix_now = std::time::UNIX_EPOCH
-            .elapsed()
-            .map(|t| t.as_secs())
-            // if by any chance this failed we will just update the cache
-            .unwrap_or(last_update + Self::CACHE_UPDATE_INTERVAL_SEC);
-        if unix_now - last_update < Self::CACHE_UPDATE_INTERVAL_SEC {
-            // no-op if the cache is up to date
-            return;
-        }
-        self.last_update.store(unix_now, Ordering::Relaxed);
-
         let keys: Vec<String> = tokio::fs::read_to_string(cache_location)
             .await
             .context("Failed to read yt-dlp cache file")
@@ -259,6 +247,18 @@ impl Resolver {
 
     /// Updates the specified keys in the cache
     async fn update_inner(&self, keys: Vec<String>) {
+        let last_update = self.last_update.load(Ordering::Relaxed);
+        let unix_now = std::time::UNIX_EPOCH
+            .elapsed()
+            .map(|t| t.as_secs())
+            // if by any chance this failed we will just update the cache
+            .unwrap_or(last_update + Self::CACHE_UPDATE_INTERVAL_SEC);
+        if unix_now - last_update < Self::CACHE_UPDATE_INTERVAL_SEC {
+            // no-op if the cache is up to date
+            return;
+        }
+        self.last_update.store(unix_now, Ordering::Relaxed);
+
         let items = stream::iter(keys)
             .map(|query| async move {
                 let yt_dlp = Self::fetch(self.http_client.clone(), &query).await;
