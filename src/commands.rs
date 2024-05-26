@@ -106,7 +106,7 @@ pub(crate) async fn play(ctx: Context<'_>, query: String) -> Result<(), anyhow::
             ctx.author().name.clone(),
         ));
 
-    let queue_info = form_currently_played(vc.queue().current_queue()).await;
+    let queue_info = form_currently_played(&vc.queue().current_queue()).await;
     if let Err(err) = ctx
         .send(CreateReply::default().embed(queue_info.clone()))
         .await
@@ -140,10 +140,10 @@ pub(crate) async fn skip(ctx: Context<'_>) -> Result<(), anyhow::Error> {
 
     let vc = vc.lock().await;
 
-    // Unfortunately, `queue().skip()` doesn't update queue immidiately, so skip(1) is required
-    // here to show the correct queue info.
-    // And instead of relying on this behavior we form info *before* the skipping the track
-    let queue_info = form_currently_played(vc.queue().current_queue().into_iter().skip(1)).await;
+    // Unfortunately, `queue().skip()` doesn't update queue immidiately, so we take the queue *before*
+    // and form the embed with tracks after the current one via `get(1..)`
+    let queue_info =
+        form_currently_played(vc.queue().current_queue().get(1..).unwrap_or_default()).await;
     ctx.send(CreateReply::default().embed(queue_info)).await?;
 
     let _ = vc.queue().skip();
@@ -168,10 +168,7 @@ pub(crate) async fn stop(ctx: Context<'_>) -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-async fn form_currently_played<It>(tracks: It) -> CreateEmbed
-where
-    It: IntoIterator<Item = songbird::tracks::TrackHandle>,
-{
+async fn form_currently_played(tracks: &[songbird::tracks::TrackHandle]) -> CreateEmbed {
     let mut tracks = tracks.into_iter();
 
     // Use the first track in the queue to form the embed
