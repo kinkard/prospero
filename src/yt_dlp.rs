@@ -67,7 +67,7 @@ impl YtDlp {
         } else if let Some(url) = yt_dlp_output.webpage_url {
             url
         } else {
-            format!("https://www.youtube.com/results?search_query={}", query)
+            format!("https://www.youtube.com/results?search_query={query}")
         }
         .into_boxed_str();
 
@@ -107,7 +107,7 @@ impl YtDlp {
             .await
             .map_err(|e| {
                 AudioStreamError::Fail(if e.kind() == ErrorKind::NotFound {
-                    format!("could not find executable '{}' on path", YOUTUBE_DL_COMMAND).into()
+                    format!("could not find executable '{YOUTUBE_DL_COMMAND}' on path").into()
                 } else {
                     Box::new(e)
                 })
@@ -118,11 +118,9 @@ impl YtDlp {
 
         Ok(yt_dlp_output)
     }
-}
 
-impl YtDlp {
     /// Provides track metadata
-    pub(crate) fn metadata(&self) -> &track_info::Metadata {
+    pub(crate) const fn metadata(&self) -> &track_info::Metadata {
         &self.metadata
     }
 }
@@ -242,9 +240,7 @@ impl Resolver {
         match cached_yt_dlp {
             Some(yt_dlp) => Some(yt_dlp),
             None => {
-                let Some(yt_dlp) = Self::fetch(self.http_client.clone(), query).await else {
-                    return None;
-                };
+                let yt_dlp = Self::fetch(self.http_client.clone(), query).await?;
 
                 self.cache
                     .write()

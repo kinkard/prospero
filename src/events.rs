@@ -138,8 +138,7 @@ async fn user_left_vc(ctx: &Context, _data: &Data, guild_id: GuildId) {
                 voice_state
                     .member
                     .as_ref()
-                    .map(|member| !member.user.bot)
-                    .unwrap_or(false)
+                    .is_some_and(|member| !member.user.bot)
             })
             .count()
             == 0

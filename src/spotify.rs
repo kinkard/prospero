@@ -39,7 +39,7 @@ pub(crate) struct Player {
 }
 
 impl Player {
-    pub(crate) async fn new(username: String, password: String) -> Result<Player, anyhow::Error> {
+    pub(crate) async fn new(username: String, password: String) -> Result<Self, anyhow::Error> {
         let credentials = Credentials::with_password(username, password);
         let session = Session::new(SessionConfig::default(), None);
         session
@@ -60,7 +60,7 @@ impl Player {
             move || Box::new(MediaSink::new(track_channels_rx)),
         );
 
-        Ok(Player {
+        Ok(Self {
             session,
             player,
             track_channels: track_channels_tx,
@@ -84,11 +84,11 @@ impl Player {
             SpotifyItemType::Track => smallvec![id],
             SpotifyItemType::Album => {
                 let album = metadata::Album::get(&self.session, &id).await.unwrap();
-                album.tracks().cloned().collect()
+                album.tracks().copied().collect()
             }
             SpotifyItemType::Playlist => {
                 let playlist = metadata::Playlist::get(&self.session, &id).await.unwrap();
-                playlist.tracks().cloned().collect()
+                playlist.tracks().copied().collect()
             }
             _ => Default::default(),
         };
@@ -124,7 +124,7 @@ impl Drop for Player {
 }
 
 /// Byte stream input that receives audio packets from Spotify player.
-/// To avoid a mess with multiple tracks, each track uses its own channel, initiated by [MediaStream::new()]
+/// To avoid a mess with multiple tracks, each track uses its own channel, initiated by [`MediaStream::new()`]
 struct MediaSink {
     /// A channel to receive track channels
     track_channels: flume::Receiver<ByteSink>,
@@ -184,7 +184,7 @@ impl audio_backend::Sink for MediaSink {
     }
 }
 
-/// Byte stream output that sends audio packets to songbird. Works in pair with [MediaSink] with
+/// Byte stream output that sends audio packets to songbird. Works in pair with [`MediaSink`] with
 /// which it shares commnuication channel.
 #[derive(Clone)]
 struct MediaStream {
@@ -197,7 +197,7 @@ struct MediaStream {
 }
 
 impl MediaStream {
-    /// Establishes a new connection to the MediaSink and creates a new MediaStream if possible
+    /// Establishes a new connection to the [`MediaSink`] and creates a new `MediaStream` if possible
     fn new(track_channels: &flume::Sender<ByteSink>) -> Option<Self> {
         // Each track has its own channel to avoid messing up with packets from different tracks
         let (byte_sink, byte_stream) = flume::bounded(16);
@@ -206,8 +206,10 @@ impl MediaStream {
         // Send magic header with LE u32 sample reate and channels count to pass these values to symphonia
         let mut header = Vec::with_capacity(16);
         header.extend(b"SbirdRaw");
+        #[allow(clippy::unnecessary_cast)] // for better readability
         header.extend((librespot::playback::SAMPLE_RATE as u32).to_le_bytes());
         header.extend((librespot::playback::NUM_CHANNELS as u32).to_le_bytes());
+        assert_eq!(header.len(), 16);
 
         Some(Self {
             receiver: Some(byte_stream),
@@ -295,7 +297,7 @@ pub(crate) struct Track {
 
 impl Track {
     /// Provides track metadata
-    pub(crate) fn metadata(&self) -> &track_info::Metadata {
+    pub(crate) const fn metadata(&self) -> &track_info::Metadata {
         &self.metadata
     }
 }
@@ -335,13 +337,13 @@ impl Compose for Track {
     }
 }
 
-/// Parses Spotify URI or URL and returns SpotifyId if possible
+/// Parses Spotify URI or URL and returns [`SpotifyId`] if possible
 fn parse_spotify_id(src: &str) -> Option<SpotifyId> {
     if let Some(remaining) = src.strip_prefix("https://open.spotify.com/") {
         remaining.split_once('/').and_then(|(item_type, id)| {
             // Remove query parameters if any
             let id = id.split_once('?').map_or(id, |(id, _)| id);
-            let uri = format!("spotify:{}:{}", item_type, id);
+            let uri = format!("spotify:{item_type}:{id}");
             SpotifyId::from_uri(&uri).ok()
         })
     } else {
@@ -362,7 +364,7 @@ fn extract_metadata(track: &metadata::Track) -> track_info::Metadata {
         .covers
         .iter()
         .find(|image| image.size == ImageSize::DEFAULT)
-        .or(track.album.covers.first())
+        .or_else(|| track.album.covers.first())
         .map(|image| format!("https://i.scdn.co/image/{}", image.id));
 
     let artist = track

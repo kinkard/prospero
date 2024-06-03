@@ -1,3 +1,5 @@
+use std::fmt::Write;
+
 use poise::CreateReply;
 use serenity::builder::{CreateEmbed, CreateMessage};
 use smallvec::{smallvec, SmallVec};
@@ -101,7 +103,6 @@ pub(crate) async fn play(ctx: Context<'_>, query: String) -> Result<(), anyhow::
         };
 
     let mut vc = vc.lock().await;
-
     for (metadata, input) in resolved_items {
         let track_handle = vc.enqueue(input.into()).await;
 
@@ -115,8 +116,9 @@ pub(crate) async fn play(ctx: Context<'_>, query: String) -> Result<(), anyhow::
                 ctx.author().name.clone(),
             ));
     }
-
     let queue_info = form_currently_played(&vc.queue().current_queue()).await;
+    drop(vc);
+
     if let Err(err) = ctx
         .send(CreateReply::default().embed(queue_info.clone()))
         .await
@@ -154,10 +156,10 @@ pub(crate) async fn skip(ctx: Context<'_>) -> Result<(), anyhow::Error> {
     // and form the embed with tracks after the current one via `get(1..)`
     let queue_info =
         form_currently_played(vc.queue().current_queue().get(1..).unwrap_or_default()).await;
-    ctx.send(CreateReply::default().embed(queue_info)).await?;
-
     let _ = vc.queue().skip();
+    drop(vc);
 
+    ctx.send(CreateReply::default().embed(queue_info)).await?;
     Ok(())
 }
 
@@ -179,7 +181,7 @@ pub(crate) async fn stop(ctx: Context<'_>) -> Result<(), anyhow::Error> {
 }
 
 async fn form_currently_played(tracks: &[songbird::tracks::TrackHandle]) -> CreateEmbed {
-    let mut tracks = tracks.into_iter();
+    let mut tracks = tracks.iter();
 
     // Use the first track in the queue to form the embed
     let embed = if let Some(track) = tracks.next() {
@@ -200,7 +202,6 @@ async fn form_currently_played(tracks: &[songbird::tracks::TrackHandle]) -> Crea
         let description = typemap.get::<track_info::TrackInfoKey>().unwrap();
 
         let size = next_str.len();
-        use std::fmt::Write;
         let _ = writeln!(next_str, "- {description}");
 
         // Discord supports up to 1024 characters in embed body
