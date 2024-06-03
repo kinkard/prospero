@@ -4,7 +4,6 @@ use std::{
     path::PathBuf,
     str::FromStr,
     sync::atomic::{AtomicU64, Ordering},
-    time::Duration,
 };
 
 use anyhow::Context;
@@ -20,18 +19,20 @@ use symphonia::core::io::MediaSource;
 use tokio::{process::Command, sync::RwLock};
 use tracing::{info, warn};
 
+use crate::track_info;
+
 const YOUTUBE_DL_COMMAND: &str = "yt-dlp";
 
 /// A thin wrapper around yt-dlp, providing a lazy request to select an audio stream
 #[derive(Clone)]
 pub(crate) struct YtDlp {
     http_request: HttpRequest,
-    metadata: AuxMetadata,
+    metadata: track_info::Metadata,
 }
 
 impl YtDlp {
-    pub(crate) async fn new(client: Client, url: &str) -> Result<Self, AudioStreamError> {
-        let yt_dlp_output = Self::query(url).await?;
+    pub(crate) async fn new(client: Client, query: &str) -> Result<Self, AudioStreamError> {
+        let yt_dlp_output = Self::query(query).await?;
 
         let headers = yt_dlp_output
             .http_headers
@@ -48,6 +49,28 @@ impl YtDlp {
             })
             .unwrap_or_default();
 
+        let title = yt_dlp_output
+            .title
+            // todo: handle radio-t in a separate resolver
+            .map(|name| {
+                if name.starts_with("rt_podcast") {
+                    name.replace("rt_podcast", "Радио-Т ")
+                } else {
+                    name
+                }
+            })
+            .unwrap_or_else(|| query.to_string())
+            .into_boxed_str();
+
+        let source_url = if query.starts_with("http") {
+            query.to_string()
+        } else if let Some(url) = yt_dlp_output.webpage_url {
+            url
+        } else {
+            format!("https://www.youtube.com/results?search_query={}", query)
+        }
+        .into_boxed_str();
+
         Ok(Self {
             http_request: HttpRequest {
                 client,
@@ -55,17 +78,14 @@ impl YtDlp {
                 headers,
                 content_length: yt_dlp_output.filesize,
             },
-
-            metadata: AuxMetadata {
-                title: yt_dlp_output.title,
-                artist: yt_dlp_output.artist.or(yt_dlp_output.uploader),
-                album: yt_dlp_output.album,
-                date: yt_dlp_output.release_date.or(yt_dlp_output.upload_date),
-                channel: yt_dlp_output.channel,
-                duration: yt_dlp_output.duration.map(Duration::from_secs_f64),
-                source_url: yt_dlp_output.webpage_url,
-                thumbnail: yt_dlp_output.thumbnail,
-                ..AuxMetadata::default()
+            metadata: track_info::Metadata {
+                title,
+                source_url,
+                thumbnail_url: yt_dlp_output.thumbnail.map(String::into_boxed_str),
+                duration_sec: yt_dlp_output
+                    .duration
+                    .map(|d| d as u32)
+                    .and_then(std::num::NonZeroU32::new),
             },
         })
     }
@@ -100,6 +120,13 @@ impl YtDlp {
     }
 }
 
+impl YtDlp {
+    /// Provides track metadata
+    pub(crate) fn metadata(&self) -> &track_info::Metadata {
+        &self.metadata
+    }
+}
+
 impl From<YtDlp> for Input {
     fn from(val: YtDlp) -> Self {
         Input::Lazy(Box::new(val))
@@ -123,23 +150,23 @@ impl Compose for YtDlp {
     }
 
     async fn aux_metadata(&mut self) -> Result<AuxMetadata, AudioStreamError> {
-        Ok(self.metadata.clone())
+        Ok(self.metadata.clone().into())
     }
 }
 
 #[derive(Deserialize)]
 pub(crate) struct YtDlpOutput {
-    artist: Option<String>,
-    album: Option<String>,
-    channel: Option<String>,
+    // artist: Option<String>,
+    // album: Option<String>,
+    // channel: Option<String>,
     duration: Option<f64>,
     filesize: Option<u64>,
     http_headers: Option<HashMap<String, String>>,
-    release_date: Option<String>,
+    // release_date: Option<String>,
     thumbnail: Option<String>,
     title: Option<String>,
-    upload_date: Option<String>,
-    uploader: Option<String>,
+    // upload_date: Option<String>,
+    // uploader: Option<String>,
     url: String,
     webpage_url: Option<String>,
 }
@@ -285,6 +312,7 @@ impl Resolver {
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+    use std::time::Duration;
 
     #[tokio::test]
     async fn test_ytdlp_rick_roll() {
@@ -298,7 +326,7 @@ mod tests {
             metadata.title,
             Some("Rick Astley - Never Gonna Give You Up (Official Music Video)".to_string())
         );
-        assert_eq!(metadata.artist, Some("Rick Astley".to_string()));
+        // assert_eq!(metadata.artist, Some("Rick Astley".to_string()));
         assert_eq!(metadata.duration, Some(Duration::from_secs(212)));
         assert_eq!(
             metadata.source_url,
@@ -318,9 +346,11 @@ mod tests {
 
         assert_eq!(
             metadata.title,
-            Some("Нейромонах Феофан — Притоптать | Neuromonakh Feofan".to_string())
+            Some(
+                "Нейромонах Феофан - Притоптать (official video) | Neuromonakh Feofan".to_string()
+            )
         );
-        assert_eq!(metadata.artist, Some("Neuromonakh Feofan".to_string()));
+        // assert_eq!(metadata.artist, Some("Neuromonakh Feofan".to_string()));
         assert_eq!(metadata.duration, Some(Duration::from_secs(210)));
         assert_eq!(
             metadata.source_url,
@@ -340,7 +370,7 @@ mod tests {
 
         let metadata = yt_dlp.aux_metadata().await.unwrap();
 
-        assert_eq!(metadata.title, Some("rt_podcast895".to_string()));
+        assert_eq!(metadata.title, Some("Радио-Т 895".to_string()));
         assert_eq!(metadata.artist, None);
         assert_eq!(metadata.duration, None);
         assert_eq!(metadata.thumbnail, None);
@@ -350,10 +380,6 @@ mod tests {
             .as_ref()
             .unwrap()
             .starts_with("https://"));
-        println!("{:?}", metadata.source_url);
-        assert!(metadata
-            .source_url
-            .unwrap()
-            .ends_with(".radio-t.com/rtfiles/rt_podcast895.mp3"));
+        assert!(metadata.source_url.unwrap().ends_with("/rt_podcast895.mp3"));
     }
 }

@@ -1,6 +1,5 @@
 use std::io;
 use std::sync::Arc;
-use std::time::Duration;
 
 use anyhow::Context;
 use async_trait::async_trait;
@@ -23,6 +22,8 @@ use songbird::input::{
     core::io::MediaSource, AudioStream, AudioStreamError, AuxMetadata, Compose, Input,
 };
 use tracing::info;
+
+use crate::track_info;
 
 type ByteSink = flume::Sender<Box<[u8]>>;
 type ByteStream = flume::Receiver<Box<[u8]>>;
@@ -100,7 +101,7 @@ impl Player {
                 id: track.id,
                 player: self.player.clone(),
                 track_channels: self.track_channels.clone(),
-                metadata: extract_aux_metadata(&track),
+                metadata: extract_metadata(&track),
             })
             .collect::<SmallVec<_>>()
             .await;
@@ -288,7 +289,15 @@ pub(crate) struct Track {
     player: Arc<player::Player>,
     /// A channel to establish a separate connection between Spotify player and songbird for each track
     track_channels: flume::Sender<ByteSink>,
-    metadata: AuxMetadata,
+    /// Track metadata
+    metadata: track_info::Metadata,
+}
+
+impl Track {
+    /// Provides track metadata
+    pub(crate) fn metadata(&self) -> &track_info::Metadata {
+        &self.metadata
+    }
 }
 
 impl From<Track> for Input {
@@ -322,7 +331,7 @@ impl Compose for Track {
     }
 
     async fn aux_metadata(&mut self) -> Result<AuxMetadata, AudioStreamError> {
-        Ok(self.metadata.clone())
+        Ok(self.metadata.clone().into())
     }
 }
 
@@ -340,7 +349,7 @@ fn parse_spotify_id(src: &str) -> Option<SpotifyId> {
     }
 }
 
-fn extract_aux_metadata(track: &metadata::Track) -> AuxMetadata {
+fn extract_metadata(track: &metadata::Track) -> track_info::Metadata {
     let source_url = track
         .id
         .to_uri()
@@ -356,15 +365,17 @@ fn extract_aux_metadata(track: &metadata::Track) -> AuxMetadata {
         .or(track.album.covers.first())
         .map(|image| format!("https://i.scdn.co/image/{}", image.id));
 
-    use itertools::Itertools;
-    let artists = track.artists.iter().map(|artist| &artist.name).join(", ");
+    let artist = track
+        .artists
+        .first()
+        .map_or("", |artist| artist.name.as_str());
 
-    AuxMetadata {
-        title: Some(format!("{} - {}", artists, track.name)),
-        source_url: Some(source_url),
-        duration: Some(Duration::from_millis(track.duration as u64)),
-        thumbnail,
-        ..Default::default()
+    track_info::Metadata {
+        title: format!("{} - {}", artist, track.name).into_boxed_str(),
+        source_url: source_url.into_boxed_str(),
+        // Spotify provides duration in milliseconds
+        duration_sec: std::num::NonZeroU32::new(track.duration as u32 / 1000),
+        thumbnail_url: thumbnail.map(String::into_boxed_str),
     }
 }
 

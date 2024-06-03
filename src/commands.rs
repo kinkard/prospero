@@ -1,7 +1,7 @@
-use futures::stream::{self, StreamExt};
 use poise::CreateReply;
 use serenity::builder::{CreateEmbed, CreateMessage};
-use songbird::input::{Compose, Input};
+use smallvec::{smallvec, SmallVec};
+use songbird::input::Input;
 use tracing::{info, warn};
 
 use crate::{track_info, Context};
@@ -77,7 +77,7 @@ pub(crate) async fn play(ctx: Context<'_>, query: String) -> Result<(), anyhow::
         }
     };
 
-    let resolved_items: Vec<(Input, _)> =
+    let resolved_items: SmallVec<[(track_info::Metadata, Input); 1]> =
         if let Some(tracks) = ctx.data().spotify_player.resolve(&query).await {
             if tracks.is_empty() {
                 ctx.reply(format!(
@@ -86,18 +86,12 @@ pub(crate) async fn play(ctx: Context<'_>, query: String) -> Result<(), anyhow::
                 .await?;
                 return Ok(());
             }
-
-            stream::iter(tracks)
-                .map(|mut track| async move {
-                    let metadata = track.aux_metadata().await.ok();
-                    (track.into(), metadata)
-                })
-                .buffered(16)
+            tracks
+                .into_iter()
+                .map(|track| (track.metadata().clone(), track.into()))
                 .collect()
-                .await
-        } else if let Some(mut yt_dlp) = ctx.data().yt_dlp_resolver.resolve(&query).await {
-            let metadata = yt_dlp.aux_metadata().await.ok();
-            vec![(yt_dlp.into(), metadata)]
+        } else if let Some(yt_dlp) = ctx.data().yt_dlp_resolver.resolve(&query).await {
+            smallvec![(yt_dlp.metadata().clone(), yt_dlp.into())]
         } else {
             ctx.reply(format!(
                 "Found nothing for '{query}'. Please try something else"
@@ -108,7 +102,7 @@ pub(crate) async fn play(ctx: Context<'_>, query: String) -> Result<(), anyhow::
 
     let mut vc = vc.lock().await;
 
-    for (input, metadata) in resolved_items {
+    for (metadata, input) in resolved_items {
         let track_handle = vc.enqueue(input.into()).await;
 
         // Attach description to the track handle so we can display each entry in the queue
@@ -117,7 +111,6 @@ pub(crate) async fn play(ctx: Context<'_>, query: String) -> Result<(), anyhow::
             .write()
             .await
             .insert::<track_info::TrackInfoKey>(track_info::TrackInfo::new(
-                query.clone(),
                 metadata,
                 ctx.author().name.clone(),
             ));
