@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use async_trait::async_trait;
+use futures::stream::{self, StreamExt};
 use librespot::core::{
     config::SessionConfig, session::Session, spotify_id::SpotifyItemType, SpotifyId,
 };
@@ -20,6 +21,7 @@ use librespot::playback::{
 use songbird::input::{
     core::io::MediaSource, AudioStream, AudioStreamError, AuxMetadata, Compose, Input,
 };
+use tracing::info;
 
 type ByteSink = flume::Sender<Box<[u8]>>;
 type ByteStream = flume::Receiver<Box<[u8]>>;
@@ -63,39 +65,51 @@ impl Player {
         })
     }
 
-    pub(crate) async fn resolve(&self, track_id: &str) -> Option<Track> {
-        let id = parse_spotify_id(track_id)?;
-        let track = metadata::Track::get(&self.session, &id).await.unwrap();
+    /// Resolves a Spotify canonical URI or URL to Spotify to a track, album or playlist
+    /// Example URIs:
+    /// - track - `spotify:track:6rqhFgbbKwnb9MLmUQDhG6`
+    /// - album - `spotify:album:6G9fHYDCoyEErUkHrFYfs4`
+    /// - playlist - `spotify:playlist:37i9dQZF1DXcBWIGoYBM5M`
+    /// Example URLs:
+    /// - track - `https://open.spotify.com/track/6rqhFgbbKwnb9MLmUQDhG6`
+    /// - album - `https://open.spotify.com/album/6G9fHYDCoyEErUkHrFYfs4`
+    /// - playlist - `https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M`
+    pub(crate) async fn resolve(&self, query: &str) -> Option<Vec<Track>> {
+        let id = parse_spotify_id(query)?;
 
-        let source_url = id
-            .to_uri()
-            .unwrap()
-            .replace(':', "/")
-            .replace("spotify/", "https://open.spotify.com/");
+        let begin = std::time::Instant::now();
+        let tracks = match id.item_type {
+            SpotifyItemType::Track => vec![id],
+            SpotifyItemType::Album => {
+                let album = metadata::Album::get(&self.session, &id).await.unwrap();
+                album.tracks().cloned().collect()
+            }
+            SpotifyItemType::Playlist => {
+                let playlist = metadata::Playlist::get(&self.session, &id).await.unwrap();
+                playlist.tracks().cloned().collect()
+            }
+            _ => Default::default(),
+        };
 
-        let thumbnail = track
-            .album
-            .covers
-            .iter()
-            .find(|image| image.size == ImageSize::DEFAULT)
-            .or(track.album.covers.first())
-            .map(|image| format!("https://i.scdn.co/image/{}", image.id));
+        let tracks = stream::iter(tracks)
+            .map(|id| async move { metadata::Track::get(&self.session, &id).await })
+            .buffered(16)
+            .filter_map(|result| async { result.ok() })
+            .map(|track| Track {
+                id: track.id,
+                player: self.player.clone(),
+                track_channels: self.track_channels.clone(),
+                metadata: extract_aux_metadata(&track),
+            })
+            .collect::<Vec<_>>()
+            .await;
+        info!(
+            "Resolved {id} into {} tracks in {}ms",
+            tracks.len(),
+            begin.elapsed().as_millis()
+        );
 
-        use itertools::Itertools;
-        let artists = track.artists.iter().map(|artist| &artist.name).join(", ");
-
-        Some(Track {
-            id,
-            player: self.player.clone(),
-            track_channels: self.track_channels.clone(),
-            metadata: AuxMetadata {
-                title: Some(format!("{} - {}", artists, track.name)),
-                source_url: Some(source_url),
-                duration: Some(Duration::from_millis(track.duration as u64)),
-                thumbnail,
-                ..Default::default()
-            },
-        })
+        Some(tracks)
     }
 }
 
@@ -323,10 +337,34 @@ fn parse_spotify_id(src: &str) -> Option<SpotifyId> {
     } else {
         SpotifyId::from_uri(src).ok()
     }
-    .filter(|id| match id.item_type {
-        SpotifyItemType::Track /*| SpotifyItemType::Album | SpotifyItemType::Playlist*/ => true,
-        _ => false,
-    })
+}
+
+fn extract_aux_metadata(track: &metadata::Track) -> AuxMetadata {
+    let source_url = track
+        .id
+        .to_uri()
+        .unwrap()
+        .replace(':', "/")
+        .replace("spotify/", "https://open.spotify.com/");
+
+    let thumbnail = track
+        .album
+        .covers
+        .iter()
+        .find(|image| image.size == ImageSize::DEFAULT)
+        .or(track.album.covers.first())
+        .map(|image| format!("https://i.scdn.co/image/{}", image.id));
+
+    use itertools::Itertools;
+    let artists = track.artists.iter().map(|artist| &artist.name).join(", ");
+
+    AuxMetadata {
+        title: Some(format!("{} - {}", artists, track.name)),
+        source_url: Some(source_url),
+        duration: Some(Duration::from_millis(track.duration as u64)),
+        thumbnail,
+        ..Default::default()
+    }
 }
 
 #[cfg(test)]
@@ -345,13 +383,11 @@ mod tests {
         );
         assert_eq!(
             parse_spotify_id("spotify:album:6G9fHYDCoyEErUkHrFYfs4"),
-            // Some(SpotifyId::from_uri("spotify:album:6G9fHYDCoyEErUkHrFYfs4").unwrap())
-            None
+            Some(SpotifyId::from_uri("spotify:album:6G9fHYDCoyEErUkHrFYfs4").unwrap())
         );
         assert_eq!(
             parse_spotify_id("spotify:playlist:37i9dQZF1DXcBWIGoYBM5M"),
-            // Some(SpotifyId::from_uri("spotify:playlist:37i9dQZF1DXcBWIGoYBM5M").unwrap())
-            None
+            Some(SpotifyId::from_uri("spotify:playlist:37i9dQZF1DXcBWIGoYBM5M").unwrap())
         );
 
         // Valid Spotify URLs
@@ -361,13 +397,11 @@ mod tests {
         );
         assert_eq!(
             parse_spotify_id("https://open.spotify.com/album/6G9fHYDCoyEErUkHrFYfs4"),
-            // Some(SpotifyId::from_uri("spotify:album:6G9fHYDCoyEErUkHrFYfs4").unwrap())
-            None
+            Some(SpotifyId::from_uri("spotify:album:6G9fHYDCoyEErUkHrFYfs4").unwrap())
         );
         assert_eq!(
             parse_spotify_id("https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M"),
-            // Some(SpotifyId::from_uri("spotify:playlist:37i9dQZF1DXcBWIGoYBM5M").unwrap())
-            None
+            Some(SpotifyId::from_uri("spotify:playlist:37i9dQZF1DXcBWIGoYBM5M").unwrap())
         );
 
         // Spotify URLs from "Copy link to the track" in Spotify app
@@ -381,15 +415,23 @@ mod tests {
             parse_spotify_id(
                 "https://open.spotify.com/album/6kUgTLymqtTyWUIKbmTMyf?si=e27fa52d985644d3"
             ),
-            // Some(SpotifyId::from_uri("spotify:album:6kUgTLymqtTyWUIKbmTMyf").unwrap())
-            None
+            Some(SpotifyId::from_uri("spotify:album:6kUgTLymqtTyWUIKbmTMyf").unwrap())
         );
         assert_eq!(
             parse_spotify_id(
                 "https://open.spotify.com/playlist/77RvyLiqmUimojxq3vg6mY?si=db83d5eafb0643ea"
             ),
-            // Some(SpotifyId::from_uri("spotify:playlist:77RvyLiqmUimojxq3vg6mY").unwrap())
-            None
+            Some(SpotifyId::from_uri("spotify:playlist:77RvyLiqmUimojxq3vg6mY").unwrap())
+        );
+
+        // Unkown Spotify type
+        assert_eq!(
+            parse_spotify_id("spotify:unknown_type:37i9dQZF1DXcBWIGoYBM5M"),
+            Some(SpotifyId::from_uri("spotify:unknown:37i9dQZF1DXcBWIGoYBM5M").unwrap())
+        );
+        assert_eq!(
+            parse_spotify_id("https://open.spotify.com/unknown_type/6G9fHYDCoyEErUkHrFYfs4"),
+            Some(SpotifyId::from_uri("spotify:unknown:6G9fHYDCoyEErUkHrFYfs4").unwrap())
         );
 
         // not matched for Spotify
@@ -408,10 +450,6 @@ mod tests {
         assert_eq!(parse_spotify_id("spotify:track:123"), None);
         assert_eq!(parse_spotify_id("spotify:album:invalid"), None);
         assert_eq!(parse_spotify_id("spotify:playlist:invalid"), None);
-        assert_eq!(
-            parse_spotify_id("spotify:unknown_type:37i9dQZF1DXcBWIGoYBM5M"),
-            None
-        );
 
         // invalid Spotify URL
         assert_eq!(
@@ -424,10 +462,6 @@ mod tests {
         );
         assert_eq!(
             parse_spotify_id("https://open.spotify.com/playlist/invalid"),
-            None
-        );
-        assert_eq!(
-            parse_spotify_id("https://open.spotify.com/unknown_type/6G9fHYDCoyEErUkHrFYfs4"),
             None
         );
     }
@@ -610,9 +644,9 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn player_test() {
+    async fn player_resolve_track_test() {
         dotenv::dotenv().expect("Set up .env file for this test");
-        tracing_subscriber::fmt::init();
+        let _ = tracing_subscriber::fmt::try_init();
 
         let player = Player::new(
             env::var("SPOTIFY_USERNAME").expect("Spotify username is not set"),
@@ -621,12 +655,13 @@ mod tests {
         .await
         .unwrap();
 
-        let track = player
+        let mut tracks = player
             .resolve("spotify:track:6rqhFgbbKwnb9MLmUQDhG6")
             .await
             .unwrap();
+        assert_eq!(tracks.len(), 1);
 
-        let Input::Lazy(mut lazy) = Input::from(track) else {
+        let Input::Lazy(mut lazy) = Input::from(tracks.pop().unwrap()) else {
             assert!(false, "Expected Lazy input");
             return;
         };
@@ -642,11 +677,12 @@ mod tests {
         assert_eq!(stream.input.read(&mut buf).unwrap(), buf.len());
 
         // The next stream created via `play` + `create_async` should interrupt the previous one via empty read
-        let track = player
+        let mut tracks = player
             .resolve("spotify:track:0X0q97XtaZHwJsYiDqyxWC")
             .await
             .unwrap();
-        let Input::Lazy(mut lazy) = Input::from(track) else {
+        assert_eq!(tracks.len(), 1);
+        let Input::Lazy(mut lazy) = Input::from(tracks.pop().unwrap()) else {
             assert!(false, "Expected Lazy input");
             return;
         };
@@ -675,5 +711,89 @@ mod tests {
         assert_eq!(next_stream.input.read(&mut buf).unwrap(), 16);
         assert_eq!(&buf[..8], b"SbirdRaw");
         assert_eq!(next_stream.input.read(&mut buf).unwrap(), buf.len());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn player_resolve_album_test() {
+        dotenv::dotenv().expect("Set up .env file for this test");
+        let _ = tracing_subscriber::fmt::try_init();
+
+        let player = Player::new(
+            env::var("SPOTIFY_USERNAME").expect("Spotify username is not set"),
+            env::var("SPOTIFY_PASSWORD").expect("Spotify password is not set"),
+        )
+        .await
+        .unwrap();
+
+        let tracks = player
+            .resolve("https://open.spotify.com/album/1bwbZJ6khPJyVpOaqgKsoZ?si=09ea457c18c54b88")
+            .await
+            .unwrap();
+        assert!(!tracks.is_empty());
+        for track in tracks {
+            assert!(matches!(Input::from(track), Input::Lazy(_)));
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn player_resolve_playlist_test() {
+        dotenv::dotenv().expect("Set up .env file for this test");
+        let _ = tracing_subscriber::fmt::try_init();
+
+        let player = Player::new(
+            env::var("SPOTIFY_USERNAME").expect("Spotify username is not set"),
+            env::var("SPOTIFY_PASSWORD").expect("Spotify password is not set"),
+        )
+        .await
+        .unwrap();
+
+        let tracks = player
+            .resolve("https://open.spotify.com/playlist/37i9dQZF1DWZqd5JICZI0u")
+            .await
+            .unwrap();
+        assert!(!tracks.is_empty());
+        for track in tracks {
+            assert!(matches!(Input::from(track), Input::Lazy(_)));
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn player_resolve_other() {
+        dotenv::dotenv().expect("Set up .env file for this test");
+        let _ = tracing_subscriber::fmt::try_init();
+
+        let player = Player::new(
+            env::var("SPOTIFY_USERNAME").expect("Spotify username is not set"),
+            env::var("SPOTIFY_PASSWORD").expect("Spotify password is not set"),
+        )
+        .await
+        .unwrap();
+
+        let not_resolved = [
+            "https://www.youtube.com/watch?v=HnL5lQXuv9M",
+            "my random raw text query",
+            "schema:track:6G9fHYDCoyEErUkHrFYfs4",
+            "spotify:track:invalid",
+            "spotify:track:123",
+            "spotify:album:invalid",
+            "spotify:playlist:invalid",
+            "https://open.spotify.com/track/invalid",
+            "https://open.spotify.com/album/invalid",
+        ];
+        for query in &not_resolved {
+            assert!(player.resolve(query).await.is_none());
+        }
+
+        let resolved_empty = [
+            "spotify:unknown:1bwbZJ6khPJyVpOaqgKsoZ",
+            "spotify:local:6rqhFgbbKwnb9MLmUQDhG6",
+            "https://open.spotify.com/artist/0kq4QvLGV5t1ZoE6ittrLQ",
+            "spotify:artist:0kq4QvLGV5t1ZoE6ittrLQ",
+            "spotify:track:0kq4QvLGV5t1ZoE6ittrLQ",
+        ];
+
+        for query in &resolved_empty {
+            assert!(player.resolve(query).await.unwrap().is_empty());
+        }
     }
 }
