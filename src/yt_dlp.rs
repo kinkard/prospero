@@ -219,7 +219,9 @@ impl Resolver {
                 let keys = cache.keys().collect::<Vec<_>>();
                 serde_json::to_string(&keys).unwrap()
             };
-            tokio::fs::write(cache_location, serialized).await.unwrap();
+            if let Err(err) = tokio::fs::write(cache_location, serialized).await {
+                warn!("Failed to write yt-dlp cache to {cache_location:?}: {err}");
+            }
         }
     }
 
