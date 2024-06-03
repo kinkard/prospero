@@ -18,6 +18,7 @@ use librespot::playback::{
     mixer::NoOpVolume,
     player,
 };
+use smallvec::{smallvec, SmallVec};
 use songbird::input::{
     core::io::MediaSource, AudioStream, AudioStreamError, AuxMetadata, Compose, Input,
 };
@@ -74,12 +75,12 @@ impl Player {
     /// - track - `https://open.spotify.com/track/6rqhFgbbKwnb9MLmUQDhG6`
     /// - album - `https://open.spotify.com/album/6G9fHYDCoyEErUkHrFYfs4`
     /// - playlist - `https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M`
-    pub(crate) async fn resolve(&self, query: &str) -> Option<Vec<Track>> {
+    pub(crate) async fn resolve(&self, query: &str) -> Option<SmallVec<[Track; 1]>> {
         let id = parse_spotify_id(query)?;
 
         let begin = std::time::Instant::now();
-        let tracks = match id.item_type {
-            SpotifyItemType::Track => vec![id],
+        let tracks: SmallVec<[_; 1]> = match id.item_type {
+            SpotifyItemType::Track => smallvec![id],
             SpotifyItemType::Album => {
                 let album = metadata::Album::get(&self.session, &id).await.unwrap();
                 album.tracks().cloned().collect()
@@ -101,7 +102,7 @@ impl Player {
                 track_channels: self.track_channels.clone(),
                 metadata: extract_aux_metadata(&track),
             })
-            .collect::<Vec<_>>()
+            .collect::<SmallVec<_>>()
             .await;
         info!(
             "Resolved {id} into {} tracks in {}ms",

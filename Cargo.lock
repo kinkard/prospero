@@ -2029,6 +2029,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serenity",
+ "smallvec",
  "songbird",
  "symphonia",
  "tokio",
