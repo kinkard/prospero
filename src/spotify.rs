@@ -21,8 +21,8 @@ use songbird::input::{
     core::io::MediaSource, AudioStream, AudioStreamError, AuxMetadata, Compose, Input,
 };
 
-type ByteSink = flume::Sender<Vec<u8>>;
-type ByteStream = flume::Receiver<Vec<u8>>;
+type ByteSink = flume::Sender<Box<[u8]>>;
+type ByteStream = flume::Receiver<Box<[u8]>>;
 
 /// A wrapper around librespot entities
 pub(crate) struct Player {
@@ -144,7 +144,8 @@ impl audio_backend::Sink for MediaSink {
     fn stop(&mut self) -> SinkResult<()> {
         // We should never ever fail on stop as otherwise librespot will do `exit(1)`
         if let Some(channel) = self.sink.take() {
-            let _ = channel.send(vec![]);
+            // Send empty packet to notify the end of the stream
+            let _ = channel.send(Box::new([]));
         }
         Ok(())
     }
@@ -161,7 +162,7 @@ impl audio_backend::Sink for MediaSink {
         let Some(sink) = self.sink.as_ref() else {
             return Err(SinkError::NotConnected("invalid MediaSink state".into()));
         };
-        sink.send(packet)
+        sink.send(packet.into_boxed_slice())
             // This error might happen if the track is skipped or bot leaves the voice channel before the track ends
             .map_err(|_| SinkError::NotConnected("Corresponding MediaStream was closed".into()))
     }
@@ -174,7 +175,7 @@ struct MediaStream {
     /// A stream of bytes from Spotify player. None if stream was read to the end (received empty packet)
     receiver: Option<ByteStream>,
     /// Intermediate buffer to handle cases when the whole packet could not be read
-    unread: Vec<u8>,
+    unread: Box<[u8]>,
     /// Position where previous read finished
     read_offset: usize,
 }
@@ -194,7 +195,7 @@ impl MediaStream {
 
         Some(Self {
             receiver: Some(byte_stream),
-            unread: header,
+            unread: header.into_boxed_slice(),
             read_offset: 0,
         })
     }
