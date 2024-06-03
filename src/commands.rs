@@ -1,6 +1,6 @@
 use poise::CreateReply;
 use serenity::builder::{CreateEmbed, CreateMessage};
-use songbird::input::Compose;
+use songbird::input::{Compose, Input};
 use tracing::{info, warn};
 
 use crate::{track_info, Context};
@@ -76,24 +76,23 @@ pub(crate) async fn play(ctx: Context<'_>, query: String) -> Result<(), anyhow::
         }
     };
 
-    let Some(mut yt_dlp) = ctx.data().yt_dlp_resolver.resolve(&query).await else {
-        ctx.reply(format!(
-            "Found nothing for '{query}'. Please try something else"
-        ))
-        .await?;
-        return Ok(());
-    };
-
-    let metadata = match yt_dlp.aux_metadata().await {
-        Ok(meta) => Some(meta),
-        Err(err) => {
-            warn!("Failed to get metadata for '{query}': {err}");
-            None
-        }
-    };
+    let (input, metadata): (Input, _) =
+        if let Some(mut track) = ctx.data().spotify_player.resolve(&query).await {
+            let metadata = track.aux_metadata().await.ok();
+            (track.into(), metadata)
+        } else if let Some(mut yt_dlp) = ctx.data().yt_dlp_resolver.resolve(&query).await {
+            let metadata = yt_dlp.aux_metadata().await.ok();
+            (yt_dlp.into(), metadata)
+        } else {
+            ctx.reply(format!(
+                "Found nothing for '{query}'. Please try something else"
+            ))
+            .await?;
+            return Ok(());
+        };
 
     let mut vc = vc.lock().await;
-    let track_handle = vc.enqueue(yt_dlp.into()).await;
+    let track_handle = vc.enqueue(input.into()).await;
 
     // Attach description to the track handle so we can display each entry in the queue
     track_handle

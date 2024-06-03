@@ -9,12 +9,13 @@ use tracing::{info, warn};
 
 mod commands;
 mod events;
+mod spotify;
 mod track_info;
 mod yt_dlp;
 
-#[derive(Default)]
 struct Data {
     yt_dlp_resolver: yt_dlp::Resolver,
+    spotify_player: spotify::Player,
 }
 type Context<'a> = poise::Context<'a, Data, anyhow::Error>;
 
@@ -22,7 +23,7 @@ type Context<'a> = poise::Context<'a, Data, anyhow::Error>;
 async fn main() {
     tracing_subscriber::fmt::init();
 
-    // Load env varialbes from .env is any
+    // Load env varialbes from .env if any
     if let Err(err) = dotenv::dotenv() {
         info!("Skipping .env file because of {err}");
     }
@@ -34,6 +35,13 @@ async fn main() {
     // Configure the client with your Discord bot token in the environment.
     let token = env::var("DISCORD_TOKEN").expect("Expected discord token in the environment");
 
+    let player = spotify::Player::new(
+        env::var("SPOTIFY_USERNAME").expect("Spotify username is not set"),
+        env::var("SPOTIFY_PASSWORD").expect("Spotify password is not set"),
+    )
+    .await
+    .expect("Failed to create spotify player");
+
     let framework = poise::Framework::builder()
         .setup(
             |ctx, _ready, framework: &poise::Framework<Data, anyhow::Error>| {
@@ -41,6 +49,7 @@ async fn main() {
                     poise::builtins::register_globally(ctx, &framework.options().commands).await?;
                     Ok(Data {
                         yt_dlp_resolver: yt_dlp::Resolver::new(data_dir),
+                        spotify_player: player,
                     })
                 })
             },
@@ -72,9 +81,7 @@ async fn main() {
         })
         .build();
 
-    let intents = GatewayIntents::non_privileged() | GatewayIntents::MESSAGE_CONTENT;
-
-    let mut client = Client::builder(&token, intents)
+    let mut client = Client::builder(&token, GatewayIntents::non_privileged())
         .framework(framework)
         .register_songbird()
         .await
