@@ -236,20 +236,27 @@ async fn form_currently_played(tracks: &[songbird::tracks::TrackHandle]) -> Crea
 
     // and then add all the other tracks to the description
     let mut next_str = String::new();
-    for track in tracks {
+    let mut remaining = 0;
+    while let Some(track) = tracks.next() {
         let typemap = track.typemap().read().await;
         let description = typemap.get::<track_info::TrackInfoKey>().unwrap();
 
-        let size = next_str.len();
+        let prev_size = next_str.len();
         let _ = writeln!(next_str, "- {description}");
 
-        // Discord supports up to 1024 characters in embed body
-        if next_str.len() > 1024 - 5 {
-            next_str.truncate(size);
-            next_str.push_str("- ...");
+        // Discord supports up to 1024 characters in embed body.
+        // Keep 16 characters space for the "... and N more" message
+        if next_str.len() > 1024 - 16 {
+            next_str.truncate(prev_size);
+            remaining += 1; // don't forget about the current track that we just discarded
             break;
         }
     }
+    remaining += tracks.count();
+    if remaining > 0 {
+        let _ = writeln!(next_str, "... and {remaining} more");
+    }
+
     if !next_str.is_empty() {
         embed.field("Next:", next_str, false)
     } else {
