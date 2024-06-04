@@ -80,7 +80,7 @@ pub(crate) async fn play(ctx: Context<'_>, query: String) -> Result<(), anyhow::
     };
 
     let resolved_items: SmallVec<[(track_info::Metadata, Input); 1]> =
-        if let Some(tracks) = ctx.data().spotify_player.resolve(&query).await {
+        if let Some(tracks) = ctx.data().spotify_resolver.resolve(guild_id, &query).await {
             if tracks.is_empty() {
                 ctx.reply(format!(
                     "Invalid Spotify query '{query}'. Please try something else"
@@ -179,6 +179,38 @@ pub(crate) async fn stop(ctx: Context<'_>) -> Result<(), anyhow::Error> {
     };
 
     ctx.reply("Stopped playing and cleared the queue").await?;
+    Ok(())
+}
+
+/// Connect Spotify account to be used by bot.
+/// https://www.spotify.com/us/account/set-device-password/
+#[poise::command(guild_only, slash_command)]
+pub(crate) async fn connect_spotify(
+    ctx: Context<'_>,
+    username: String,
+    password: String,
+) -> Result<(), anyhow::Error> {
+    let guild_id = ctx.guild().unwrap().id;
+
+    let result = ctx
+        .data()
+        .spotify_resolver
+        .connect(guild_id, username, password)
+        .await;
+    let reply = if let Err(err) = result {
+        format!("Failed to connect Spotify account: {err:#}.")
+    } else {
+        "Spotify account connected successfully.".into()
+    };
+
+    ctx.send(
+        CreateReply::default()
+            .content(reply)
+            .reply(true)
+            // Show reply only to user who invoked the command to avoid credentials leakage
+            .ephemeral(true),
+    )
+    .await?;
     Ok(())
 }
 

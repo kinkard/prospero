@@ -17,7 +17,7 @@ mod yt_dlp;
 struct Data {
     yt_dlp_resolver: yt_dlp::Resolver,
     radio_t_resolver: radiot::Resolver,
-    spotify_player: spotify::Player,
+    spotify_resolver: spotify::Resolver,
 }
 type Context<'a> = poise::Context<'a, Data, anyhow::Error>;
 
@@ -31,31 +31,35 @@ async fn main() {
     }
 
     let data_dir = env::var("DATA_DIR").expect("Expected path to DATA in the environment");
-    let mut data_dir = std::path::PathBuf::from(data_dir);
-    data_dir.push("yt-dlp-cache.json");
+    let data_dir = std::path::PathBuf::from(data_dir);
+    if !data_dir.exists() {
+        std::fs::create_dir_all(&data_dir).expect("Failed to create yt-dlp cache directory");
+    }
+
+    let http_client = reqwest::Client::new();
+    let bot_data = Data {
+        yt_dlp_resolver: {
+            let mut data_dir = data_dir.clone();
+            data_dir.push("yt-dlp-cache.json");
+            yt_dlp::Resolver::new(http_client.clone(), data_dir)
+        },
+        radio_t_resolver: radiot::Resolver::new(http_client.clone()),
+        spotify_resolver: {
+            let mut db_path = data_dir.clone();
+            db_path.push("db.sqlite");
+            spotify::Resolver::new(&db_path).expect("Failed to initialize Spotify resolver")
+        },
+    };
 
     // Configure the client with your Discord bot token in the environment.
     let token = env::var("DISCORD_TOKEN").expect("Expected discord token in the environment");
-
-    let player = spotify::Player::new(
-        env::var("SPOTIFY_USERNAME").expect("Spotify username is not set"),
-        env::var("SPOTIFY_PASSWORD").expect("Spotify password is not set"),
-    )
-    .await
-    .expect("Failed to create spotify player");
-
-    let http_client = reqwest::Client::new();
 
     let framework = poise::Framework::builder()
         .setup(
             |ctx, _ready, framework: &poise::Framework<Data, anyhow::Error>| {
                 Box::pin(async move {
                     poise::builtins::register_globally(ctx, &framework.options().commands).await?;
-                    Ok(Data {
-                        yt_dlp_resolver: yt_dlp::Resolver::new(http_client.clone(), data_dir),
-                        radio_t_resolver: radiot::Resolver::new(http_client),
-                        spotify_player: player,
-                    })
+                    Ok(bot_data)
                 })
             },
         )
@@ -67,6 +71,7 @@ async fn main() {
                 commands::play(),
                 commands::skip(),
                 commands::stop(),
+                commands::connect_spotify(),
             ],
             event_handler: |ctx, event, _framework, data| {
                 Box::pin(async move {

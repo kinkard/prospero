@@ -100,6 +100,8 @@ async fn bot_left_vc(ctx: &Context, data: &Data, guild_id: GuildId) {
         &ctx.cache.guild(guild_id).unwrap().name
     );
 
+    data.spotify_resolver.disconnect(guild_id).await;
+
     // Let's save yt_dlp_resolver state
     data.yt_dlp_resolver.save_cache().await;
 }
