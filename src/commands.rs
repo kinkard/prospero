@@ -92,6 +92,8 @@ pub(crate) async fn play(ctx: Context<'_>, query: String) -> Result<(), anyhow::
                 .into_iter()
                 .map(|track| (track.metadata().clone(), track.into()))
                 .collect()
+        } else if let Some(podcast) = ctx.data().radio_t_resolver.resolve(&query).await {
+            smallvec![(podcast.metadata().clone(), podcast.into())]
         } else if let Some(yt_dlp) = ctx.data().yt_dlp_resolver.resolve(&query).await {
             smallvec![(yt_dlp.metadata().clone(), yt_dlp.into())]
         } else {

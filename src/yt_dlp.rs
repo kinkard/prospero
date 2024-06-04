@@ -51,14 +51,6 @@ impl YtDlp {
 
         let title = yt_dlp_output
             .title
-            // todo: handle radio-t in a separate resolver
-            .map(|name| {
-                if name.starts_with("rt_podcast") {
-                    name.replace("rt_podcast", "Радио-Т ")
-                } else {
-                    name
-                }
-            })
             .unwrap_or_else(|| query.to_string())
             .into_boxed_str();
 
@@ -184,9 +176,10 @@ impl Resolver {
     const CACHE_UPDATE_INTERVAL_SEC: u64 = 24 * 60 * 60;
 
     /// Creates a new yt-dlp resolver with a cache file
-    pub(crate) fn new(cache_location: PathBuf) -> Self {
+    pub(crate) fn new(http_client: reqwest::Client, cache_location: PathBuf) -> Self {
         Self {
             cache_location: Some(cache_location),
+            http_client,
             ..Default::default()
         }
     }
@@ -358,26 +351,5 @@ mod tests {
             metadata.thumbnail,
             Some("https://i.ytimg.com/vi/HNpLuXOg7xQ/maxresdefault.jpg".to_string())
         );
-    }
-
-    #[tokio::test]
-    async fn test_ytdlp_radiot() {
-        let mut yt_dlp = YtDlp::new(Client::new(), "https://cdn.radio-t.com/rt_podcast895.mp3")
-            .await
-            .unwrap();
-
-        let metadata = yt_dlp.aux_metadata().await.unwrap();
-
-        assert_eq!(metadata.title, Some("Радио-Т 895".to_string()));
-        assert_eq!(metadata.artist, None);
-        assert_eq!(metadata.duration, None);
-        assert_eq!(metadata.thumbnail, None);
-        // cdn might resolve into different urls
-        assert!(metadata
-            .source_url
-            .as_ref()
-            .unwrap()
-            .starts_with("https://"));
-        assert!(metadata.source_url.unwrap().ends_with("/rt_podcast895.mp3"));
     }
 }

@@ -9,12 +9,14 @@ use tracing::{info, warn};
 
 mod commands;
 mod events;
+mod radiot;
 mod spotify;
 mod track_info;
 mod yt_dlp;
 
 struct Data {
     yt_dlp_resolver: yt_dlp::Resolver,
+    radio_t_resolver: radiot::Resolver,
     spotify_player: spotify::Player,
 }
 type Context<'a> = poise::Context<'a, Data, anyhow::Error>;
@@ -42,13 +44,16 @@ async fn main() {
     .await
     .expect("Failed to create spotify player");
 
+    let http_client = reqwest::Client::new();
+
     let framework = poise::Framework::builder()
         .setup(
             |ctx, _ready, framework: &poise::Framework<Data, anyhow::Error>| {
                 Box::pin(async move {
                     poise::builtins::register_globally(ctx, &framework.options().commands).await?;
                     Ok(Data {
-                        yt_dlp_resolver: yt_dlp::Resolver::new(data_dir),
+                        yt_dlp_resolver: yt_dlp::Resolver::new(http_client.clone(), data_dir),
+                        radio_t_resolver: radiot::Resolver::new(http_client),
                         spotify_player: player,
                     })
                 })
