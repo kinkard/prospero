@@ -305,8 +305,9 @@ mod tests {
     use pretty_assertions::assert_eq;
     use std::time::Duration;
 
+    #[ignore]
     #[tokio::test]
-    async fn test_ytdlp_rick_roll() {
+    async fn resolve_rick_roll() {
         let mut yt_dlp = YtDlp::new(Client::new(), "https://www.youtube.com/watch?v=dQw4w9WgXcQ")
             .await
             .unwrap();
@@ -329,8 +330,9 @@ mod tests {
         );
     }
 
+    #[ignore]
     #[tokio::test]
-    async fn test_ytdlp_pritoptat() {
+    async fn resolve_pritoptat() {
         let mut yt_dlp = YtDlp::new(Client::new(), "притоптать").await.unwrap();
 
         let metadata = yt_dlp.aux_metadata().await.unwrap();

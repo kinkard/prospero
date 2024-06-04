@@ -811,6 +811,7 @@ mod tests {
         }
     }
 
+    #[ignore]
     #[tokio::test(flavor = "multi_thread")]
     async fn player_resolve_track_test() {
         dotenv::dotenv().expect("Set up .env file for this test");
@@ -881,6 +882,7 @@ mod tests {
         assert_eq!(next_stream.input.read(&mut buf).unwrap(), buf.len());
     }
 
+    #[ignore]
     #[tokio::test(flavor = "multi_thread")]
     async fn player_resolve_album_test() {
         dotenv::dotenv().expect("Set up .env file for this test");
@@ -903,6 +905,7 @@ mod tests {
         }
     }
 
+    #[ignore]
     #[tokio::test(flavor = "multi_thread")]
     async fn player_resolve_playlist_test() {
         dotenv::dotenv().expect("Set up .env file for this test");
@@ -925,6 +928,7 @@ mod tests {
         }
     }
 
+    #[ignore]
     #[tokio::test(flavor = "multi_thread")]
     async fn player_resolve_other() {
         dotenv::dotenv().expect("Set up .env file for this test");

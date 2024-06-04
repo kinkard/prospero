@@ -8,3 +8,6 @@ REVISION := $(shell git rev-parse HEAD)
 docker:
 	docker build . --tag $(NAME):$(REVISION)
 	docker tag $(NAME):$(REVISION) $(NAME):latest
+
+test:
+	cargo test -- --include-ignored
