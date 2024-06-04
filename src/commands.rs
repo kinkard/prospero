@@ -61,23 +61,27 @@ pub(crate) async fn ping(ctx: Context<'_>) -> Result<(), anyhow::Error> {
 #[poise::command(guild_only, slash_command)]
 pub(crate) async fn play(ctx: Context<'_>, query: String) -> Result<(), anyhow::Error> {
     info!("{} requested to play '{query}'", ctx.author().name);
-    let guild_id = ctx.guild().unwrap().id;
+
+    let Some(channel_id) = get_author_vc(&ctx) else {
+        ctx.reply("You should be in a voice channel if you want me to play for you")
+            .await?;
+        return Ok(());
+    };
 
     let songbird = songbird::get(ctx.serenity_context())
         .await
         .expect("Songbird Voice client placed in at initialisation.");
 
-    let vc = match songbird.get(guild_id) {
-        Some(vc) => vc,
-        None => {
-            let Some(channel_id) = get_author_vc(&ctx) else {
-                ctx.reply("You should be in a voice channel to invite me")
-                    .await?;
-                return Ok(());
-            };
-            songbird.join(guild_id, channel_id).await?
+    let guild_id = ctx.guild().unwrap().id;
+
+    // Do it in a separate task as joining a voice channel can take some time
+    let vc = tokio::spawn(async move {
+        match songbird.get(guild_id) {
+            // todo: check if bot is in the same channel as the user
+            Some(vc) => Ok(vc),
+            None => songbird.join(guild_id, channel_id).await,
         }
-    };
+    });
 
     let resolved_items: SmallVec<[(track_info::Metadata, Input); 1]> =
         if let Some(tracks) = ctx.data().spotify_resolver.resolve(guild_id, &query).await {
@@ -104,6 +108,7 @@ pub(crate) async fn play(ctx: Context<'_>, query: String) -> Result<(), anyhow::
             return Ok(());
         };
 
+    let vc = vc.await??;
     let mut vc = vc.lock().await;
     for (metadata, input) in resolved_items {
         let track_handle = vc.enqueue(input.into()).await;
