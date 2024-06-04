@@ -38,10 +38,10 @@ impl Resolver {
             // Return the last podcast if live stream is not online
             if self.stream_is_online().await {
                 SiteApiResponse {
-                    title: "Radio-T Online".to_string(),
-                    url: "https://radio-t.com/".to_string(),
-                    image: "https://radio-t.com/build/images/logo-icon.svg".to_string(),
-                    audio_url: "https://stream.radio-t.com/".to_string(),
+                    title: "Radio-T Online".into(),
+                    url: "https://radio-t.com/".into(),
+                    image: "https://radio-t.com/build/images/logo-icon.svg".into(),
+                    audio_url: "https://stream.radio-t.com/".into(),
                 }
             } else {
                 self.http_client
@@ -82,11 +82,11 @@ impl Resolver {
         };
 
         Some(Podcast {
-            http_request: HttpRequest::new(self.http_client.clone(), podcast.audio_url),
+            http_request: HttpRequest::new(self.http_client.clone(), podcast.audio_url.into()),
             metadata: track_info::Metadata {
-                title: podcast.title.into_boxed_str(),
-                source_url: podcast.url.into_boxed_str(),
-                thumbnail_url: Some(podcast.image.into_boxed_str()),
+                title: podcast.title,
+                source_url: podcast.url,
+                thumbnail_url: Some(podcast.image),
                 duration_sec: None,
             },
         })
@@ -151,13 +151,13 @@ impl Compose for Podcast {
 #[derive(Deserialize)]
 struct SiteApiResponse {
     /// Podcast title
-    title: String,
+    title: Box<str>,
     /// Web page URL
-    url: String,
+    url: Box<str>,
     /// Podcast thumbnail URL
-    image: String,
+    image: Box<str>,
     /// Podcast audio URL
-    audio_url: String,
+    audio_url: Box<str>,
 }
 
 #[cfg(test)]
