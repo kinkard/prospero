@@ -80,6 +80,9 @@ impl Resolver {
         guild_id: GuildId,
         query: &str,
     ) -> Option<SmallVec<[Track; 1]>> {
+        // Parse Spotify ID first to avoid unnecessary requests if it is something else
+        let spotify_id = parse_spotify_id(query)?;
+
         // Cloning the player is cheap as it's just bunch of Arcs.
         // Perform separate read and write locks to avoid deadlocks
         let player = self.players.read().await.get(&guild_id).cloned();
@@ -92,7 +95,7 @@ impl Resolver {
                 player
             }
         };
-        player.resolve(query).await
+        Some(player.fetch(spotify_id).await)
     }
 
     /// Handles bot disconnection from the voice channel
@@ -153,9 +156,7 @@ impl Player {
     /// - track - `https://open.spotify.com/track/6rqhFgbbKwnb9MLmUQDhG6`
     /// - album - `https://open.spotify.com/album/6G9fHYDCoyEErUkHrFYfs4`
     /// - playlist - `https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M`
-    async fn resolve(&self, query: &str) -> Option<SmallVec<[Track; 1]>> {
-        let id = parse_spotify_id(query)?;
-
+    async fn fetch(&self, id: SpotifyId) -> SmallVec<[Track; 1]> {
         let begin = std::time::Instant::now();
         let tracks: SmallVec<[_; 1]> = match id.item_type {
             SpotifyItemType::Track => smallvec![id],
@@ -188,7 +189,7 @@ impl Player {
             begin.elapsed().as_millis()
         );
 
-        Some(tracks)
+        tracks
     }
 }
 
@@ -472,6 +473,10 @@ mod tests {
             parse_spotify_id("spotify:playlist:37i9dQZF1DXcBWIGoYBM5M"),
             Some(SpotifyId::from_uri("spotify:playlist:37i9dQZF1DXcBWIGoYBM5M").unwrap())
         );
+        assert_eq!(
+            parse_spotify_id("spotify:show:6bdZFtHJdaa1mGUa7LfbPZ"),
+            Some(SpotifyId::from_uri("spotify:show:6bdZFtHJdaa1mGUa7LfbPZ").unwrap())
+        );
 
         // Valid Spotify URLs
         assert_eq!(
@@ -485,6 +490,10 @@ mod tests {
         assert_eq!(
             parse_spotify_id("https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M"),
             Some(SpotifyId::from_uri("spotify:playlist:37i9dQZF1DXcBWIGoYBM5M").unwrap())
+        );
+        assert_eq!(
+            parse_spotify_id("https://open.spotify.com/show/6bdZFtHJdaa1mGUa7LfbPZ"),
+            Some(SpotifyId::from_uri("spotify:show:6bdZFtHJdaa1mGUa7LfbPZ").unwrap())
         );
 
         // Spotify URLs from "Copy link to the track" in Spotify app
@@ -506,6 +515,12 @@ mod tests {
             ),
             Some(SpotifyId::from_uri("spotify:playlist:77RvyLiqmUimojxq3vg6mY").unwrap())
         );
+        assert_eq!(
+            parse_spotify_id(
+                "https://open.spotify.com/show/6bdZFtHJdaa1mGUa7LfbPZ?si=aedb61f9fa6f4c30"
+            ),
+            Some(SpotifyId::from_uri("spotify:show:6bdZFtHJdaa1mGUa7LfbPZ").unwrap())
+        );
 
         // Unkown Spotify type
         assert_eq!(
@@ -516,37 +531,32 @@ mod tests {
             parse_spotify_id("https://open.spotify.com/unknown_type/6G9fHYDCoyEErUkHrFYfs4"),
             Some(SpotifyId::from_uri("spotify:unknown:6G9fHYDCoyEErUkHrFYfs4").unwrap())
         );
-
-        // not matched for Spotify
         assert_eq!(
-            parse_spotify_id("https://www.youtube.com/watch?v=HnL5lQXuv9M"),
-            None
-        );
-        assert_eq!(parse_spotify_id("my random raw text query"), None);
-        assert_eq!(
-            parse_spotify_id("schema:track:6G9fHYDCoyEErUkHrFYfs4"),
-            None
+            parse_spotify_id("https://open.spotify.com/blablabla/6bdZFtHJdaa1mGUa7LfbPZ"),
+            Some(SpotifyId::from_uri("spotify:unknown:6bdZFtHJdaa1mGUa7LfbPZ").unwrap())
         );
 
-        // invalid Spotify URI
-        assert_eq!(parse_spotify_id("spotify:track:invalid"), None);
-        assert_eq!(parse_spotify_id("spotify:track:123"), None);
-        assert_eq!(parse_spotify_id("spotify:album:invalid"), None);
-        assert_eq!(parse_spotify_id("spotify:playlist:invalid"), None);
+        let invalid_queries = [
+            // invalid Spotify URI
+            "spotify:track:invalid",
+            "spotify:track:123",
+            "spotify:album:invalid",
+            "spotify:playlist:invalid",
+            // invalid Spotify URL
+            "https://open.spotify.com/track/invalid",
+            "https://open.spotify.com/album/invalid",
+            "https://open.spotify.com/playlist/invalid",
+            // non-Spotify stuff
+            "https://open.spoti.fy/track/6G9fHYDCoyEErUkHrFYfs4",
+            "https://www.youtube.com/watch?v=HnL5lQXuv9M",
+            "my random raw text query",
+            "schema:track:6G9fHYDCoyEErUkHrFYfs4",
+        ];
+        for id in &invalid_queries {
+            assert_eq!(parse_spotify_id(id), None, "Failed at {id}");
+        }
 
         // invalid Spotify URL
-        assert_eq!(
-            parse_spotify_id("https://open.spotify.com/track/invalid"),
-            None
-        );
-        assert_eq!(
-            parse_spotify_id("https://open.spotify.com/album/invalid"),
-            None
-        );
-        assert_eq!(
-            parse_spotify_id("https://open.spotify.com/playlist/invalid"),
-            None
-        );
     }
 
     #[test]
@@ -740,9 +750,8 @@ mod tests {
         .unwrap();
 
         let mut tracks = player
-            .resolve("spotify:track:6rqhFgbbKwnb9MLmUQDhG6")
-            .await
-            .unwrap();
+            .fetch(parse_spotify_id("spotify:track:6rqhFgbbKwnb9MLmUQDhG6").unwrap())
+            .await;
         assert_eq!(tracks.len(), 1);
 
         let Input::Lazy(mut lazy) = Input::from(tracks.pop().unwrap()) else {
@@ -762,9 +771,8 @@ mod tests {
 
         // The next stream created via `play` + `create_async` should interrupt the previous one via empty read
         let mut tracks = player
-            .resolve("spotify:track:0X0q97XtaZHwJsYiDqyxWC")
-            .await
-            .unwrap();
+            .fetch(parse_spotify_id("spotify:track:0X0q97XtaZHwJsYiDqyxWC").unwrap())
+            .await;
         assert_eq!(tracks.len(), 1);
         let Input::Lazy(mut lazy) = Input::from(tracks.pop().unwrap()) else {
             assert!(false, "Expected Lazy input");
@@ -810,10 +818,11 @@ mod tests {
         .await
         .unwrap();
 
-        let tracks = player
-            .resolve("https://open.spotify.com/album/1bwbZJ6khPJyVpOaqgKsoZ?si=09ea457c18c54b88")
-            .await
-            .unwrap();
+        let id = parse_spotify_id(
+            "https://open.spotify.com/album/1bwbZJ6khPJyVpOaqgKsoZ?si=09ea457c18c54b88",
+        )
+        .unwrap();
+        let tracks = player.fetch(id).await;
         assert!(!tracks.is_empty());
         for track in tracks {
             assert!(matches!(Input::from(track), Input::Lazy(_)));
@@ -833,10 +842,9 @@ mod tests {
         .await
         .unwrap();
 
-        let tracks = player
-            .resolve("https://open.spotify.com/playlist/37i9dQZF1DWZqd5JICZI0u")
-            .await
-            .unwrap();
+        let id =
+            parse_spotify_id("https://open.spotify.com/playlist/37i9dQZF1DWZqd5JICZI0u").unwrap();
+        let tracks = player.fetch(id).await;
         assert!(!tracks.is_empty());
         for track in tracks {
             assert!(matches!(Input::from(track), Input::Lazy(_)));
@@ -856,31 +864,23 @@ mod tests {
         .await
         .unwrap();
 
-        let not_resolved = [
-            "https://www.youtube.com/watch?v=HnL5lQXuv9M",
-            "my random raw text query",
-            "schema:track:6G9fHYDCoyEErUkHrFYfs4",
-            "spotify:track:invalid",
-            "spotify:track:123",
-            "spotify:album:invalid",
-            "spotify:playlist:invalid",
-            "https://open.spotify.com/track/invalid",
-            "https://open.spotify.com/album/invalid",
-        ];
-        for query in &not_resolved {
-            assert!(player.resolve(query).await.is_none());
-        }
-
         let resolved_empty = [
             "spotify:unknown:1bwbZJ6khPJyVpOaqgKsoZ",
             "spotify:local:6rqhFgbbKwnb9MLmUQDhG6",
             "https://open.spotify.com/artist/0kq4QvLGV5t1ZoE6ittrLQ",
             "spotify:artist:0kq4QvLGV5t1ZoE6ittrLQ",
             "spotify:track:0kq4QvLGV5t1ZoE6ittrLQ",
+            // lex fridman podcast
+            "spotify:show:2MAi0BvDc6GTFvKFPXnkCL",
+            "https://open.spotify.com/show/2MAi0BvDc6GTFvKFPXnkCL?si=82e4b652d0de4dee",
+            // radio-t podcast
+            "spotify:show:6bdZFtHJdaa1mGUa7LfbPZ",
+            "https://open.spotify.com/show/6bdZFtHJdaa1mGUa7LfbPZ?si=aedb61f9fa6f4c30",
         ];
 
         for query in &resolved_empty {
-            assert!(player.resolve(query).await.unwrap().is_empty());
+            let id = parse_spotify_id(query).unwrap();
+            assert!(player.fetch(id).await.is_empty());
         }
     }
 }
