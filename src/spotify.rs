@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::io;
-use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use anyhow::Context;
 use async_trait::async_trait;
@@ -29,18 +28,28 @@ use tracing::info;
 
 use crate::track_info;
 
+/// An interface for storing and retrieving Spotify credentials for the guild
+pub(crate) trait CredentialsStorage: Send + Sync {
+    /// Saves (username, password) pair for the provided guild
+    fn save(&self, guild_id: GuildId, username: &str, password: &str) -> Result<(), anyhow::Error>;
+    /// Resolves (username, password) pair for the provided guild if any
+    fn load(&self, guild_id: GuildId) -> Option<(String, String)>;
+}
+
 /// Spotify players manager, responsible for handling player's lifetime and storing credentials
 pub(crate) struct Resolver {
+    /// Active Spotify players
     players: RwLock<HashMap<GuildId, Player>>,
-    storage: Mutex<CredentialsStorage>,
+    /// Spotify credentials storage
+    storage: Arc<dyn CredentialsStorage>,
 }
 
 impl Resolver {
-    pub(crate) fn new(db_path: &Path) -> Result<Self, anyhow::Error> {
-        Ok(Self {
+    pub(crate) fn new(storage: Arc<dyn CredentialsStorage>) -> Self {
+        Self {
             players: RwLock::new(HashMap::new()),
-            storage: Mutex::new(CredentialsStorage::new(db_path)?),
-        })
+            storage,
+        }
     }
 
     /// Connects to Spotify with provided username and password for the provided guild.
@@ -52,10 +61,7 @@ impl Resolver {
         password: String,
     ) -> Result<(), anyhow::Error> {
         let player = Player::new(username.clone(), password.clone()).await?;
-        self.storage
-            .lock()
-            .unwrap()
-            .save(guild_id, username, password)?;
+        self.storage.save(guild_id, &username, &password)?;
         self.players.write().await.insert(guild_id, player);
         Ok(())
     }
@@ -80,7 +86,7 @@ impl Resolver {
         let player = match player {
             Some(player) => player,
             None => {
-                let (username, password) = self.storage.lock().unwrap().load(guild_id).ok()?;
+                let (username, password) = self.storage.load(guild_id)?;
                 let player = Player::new(username, password).await.ok()?;
                 self.players.write().await.insert(guild_id, player.clone());
                 player
@@ -92,55 +98,6 @@ impl Resolver {
     /// Handles bot disconnection from the voice channel
     pub(crate) async fn disconnect(&self, guild_id: GuildId) {
         self.players.write().await.remove(&guild_id);
-    }
-}
-
-/// Spotify credentials storage
-struct CredentialsStorage(rusqlite::Connection);
-
-impl CredentialsStorage {
-    fn new<P: AsRef<Path>>(db_path: P) -> Result<Self, anyhow::Error> {
-        let db_conn = rusqlite::Connection::open(db_path)?;
-        db_conn.execute(
-            "CREATE TABLE IF NOT EXISTS spotify_credentials (
-                guild_id INTEGER PRIMARY KEY,
-                username TEXT,
-                password TEXT
-            )",
-            (),
-        )?;
-        Ok(Self(db_conn))
-    }
-
-    /// Saves (username, password) pair for the provided guild
-    fn save(
-        &self,
-        guild_id: GuildId,
-        username: String,
-        password: String,
-    ) -> Result<(), anyhow::Error> {
-        self.0.execute(
-            "INSERT OR REPLACE INTO spotify_credentials (
-                guild_id, username, password
-            ) VALUES (?1, ?2, ?3)",
-            (guild_id.get() as i64, username, password),
-        )?;
-        Ok(())
-    }
-
-    /// Resolves (username, password) pair for the provided guild
-    pub(crate) fn load(&self, guild_id: GuildId) -> Result<(String, String), anyhow::Error> {
-        let mut stmt = self
-            .0
-            .prepare(
-                "SELECT username, password 
-                    FROM spotify_credentials
-                    WHERE guild_id = ?1",
-            )
-            .unwrap();
-        let mut rows = stmt.query([guild_id.get() as i64])?;
-        let row = rows.next()?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
-        Ok((row.get(0)?, row.get(1)?))
     }
 }
 
@@ -499,48 +456,6 @@ mod tests {
     use librespot::playback::audio_backend::Sink;
     use pretty_assertions::assert_eq;
     use std::{env, io::Read};
-
-    #[test]
-    fn storage_test() {
-        let storage = CredentialsStorage::new(":memory:").unwrap();
-
-        let first_guild_id = GuildId::new(101);
-        assert!(storage
-            .save(first_guild_id, "my username".into(), "my password".into(),)
-            .is_ok());
-        assert_eq!(
-            storage.load(first_guild_id).unwrap(),
-            ("my username".into(), "my password".into())
-        );
-
-        // store same Spotify username for another guild
-        let guild_id = GuildId::new(202);
-        assert!(storage
-            .save(guild_id, "my username".into(), "another password".into(),)
-            .is_ok());
-        assert_eq!(
-            storage.load(guild_id).unwrap(),
-            ("my username".into(), "another password".into())
-        );
-
-        // update the username and password
-        assert!(storage
-            .save(guild_id, "another username".into(), "third password".into())
-            .is_ok());
-        assert_eq!(
-            storage.load(guild_id).unwrap(),
-            ("another username".into(), "third password".into())
-        );
-
-        // First guild should not be affected
-        assert_eq!(
-            storage.load(first_guild_id).unwrap(),
-            ("my username".into(), "my password".into())
-        );
-
-        // Non-existing guild
-        assert!(storage.load(GuildId::new(303)).is_err());
-    }
 
     #[test]
     fn parse_spotify_id_test() {

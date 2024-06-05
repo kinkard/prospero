@@ -11,6 +11,7 @@ mod commands;
 mod events;
 mod radiot;
 mod spotify;
+mod storage;
 mod track_info;
 mod yt_dlp;
 
@@ -36,19 +37,18 @@ async fn main() {
         std::fs::create_dir_all(&data_dir).expect("Failed to create yt-dlp cache directory");
     }
 
+    let storage =
+        storage::Storage::new(data_dir.join("db.sqlite")).expect("Failed to create storage");
+
     let http_client = reqwest::Client::new();
     let bot_data = Data {
         yt_dlp_resolver: {
-            let mut data_dir = data_dir.clone();
+            let mut data_dir = data_dir;
             data_dir.push("yt-dlp-cache.json");
             yt_dlp::Resolver::new(http_client.clone(), data_dir)
         },
         radio_t_resolver: radiot::Resolver::new(http_client.clone()),
-        spotify_resolver: {
-            let mut db_path = data_dir.clone();
-            db_path.push("db.sqlite");
-            spotify::Resolver::new(&db_path).expect("Failed to initialize Spotify resolver")
-        },
+        spotify_resolver: spotify::Resolver::new(storage),
     };
 
     // Configure the client with your Discord bot token in the environment.
