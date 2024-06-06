@@ -101,9 +101,6 @@ async fn bot_left_vc(ctx: &Context, data: &Data, guild_id: GuildId) {
     );
 
     data.spotify_resolver.disconnect(guild_id).await;
-
-    // Let's save yt_dlp_resolver state
-    data.yt_dlp_resolver.save_cache().await;
 }
 
 /// Invoked when user joined a voice channel
@@ -147,6 +144,7 @@ async fn user_left_vc(ctx: &Context, _data: &Data, guild_id: GuildId) {
     };
 
     if bot_left_alone {
+        info!("Bot left alone, leaving the vc");
         let _ = songbird::get(ctx)
             .await
             .expect("Songbird Voice client placed in at initialisation.")

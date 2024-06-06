@@ -42,11 +42,7 @@ async fn main() {
 
     let http_client = reqwest::Client::new();
     let bot_data = Data {
-        yt_dlp_resolver: {
-            let mut data_dir = data_dir;
-            data_dir.push("yt-dlp-cache.json");
-            yt_dlp::Resolver::new(http_client.clone(), data_dir)
-        },
+        yt_dlp_resolver: yt_dlp::Resolver::new(http_client.clone(), storage.clone()),
         radio_t_resolver: radiot::Resolver::new(http_client.clone()),
         spotify_resolver: spotify::Resolver::new(storage),
     };

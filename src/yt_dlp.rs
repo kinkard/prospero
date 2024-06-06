@@ -1,12 +1,12 @@
-use std::{
-    collections::HashMap,
-    io::ErrorKind,
-    path::PathBuf,
-    str::FromStr,
-    sync::atomic::{AtomicU64, Ordering},
+use std::borrow::Cow;
+use std::collections::HashMap;
+use std::io::ErrorKind;
+use std::str::FromStr;
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc,
 };
 
-use anyhow::Context;
 use async_trait::async_trait;
 use futures::stream::{self, StreamExt};
 use reqwest::{
@@ -161,10 +161,21 @@ pub(crate) struct YtDlpOutput {
     webpage_url: Option<String>,
 }
 
-#[derive(Default)]
+/// Query cache for yt-dlp that helps to reduce time spent on searching YouTube
+pub(crate) trait QueryCache: Send + Sync {
+    /// Saves found webpage_url for the query
+    fn save(&self, query: &str, webpage_url: &str) -> Result<(), anyhow::Error>;
+    /// Loads found webpage_url for the query if it is known
+    fn load(&self, query: &str) -> Option<String>;
+    /// Returns all known webpage_urls
+    fn load_all(&self) -> Vec<String>;
+}
+
 pub(crate) struct Resolver {
+    /// Query to webpage_url cache to speed up the yt-dlp queries
+    query_cache: Arc<dyn QueryCache>,
+    /// Recently fetched yt-dlp instances
     cache: RwLock<HashMap<String, YtDlp>>,
-    cache_location: Option<PathBuf>,
     /// Unix timestamp of the last time the cache was updated
     last_update: AtomicU64,
 
@@ -176,46 +187,18 @@ impl Resolver {
     const CACHE_UPDATE_INTERVAL_SEC: u64 = 24 * 60 * 60;
 
     /// Creates a new yt-dlp resolver with a cache file
-    pub(crate) fn new(http_client: reqwest::Client, cache_location: PathBuf) -> Self {
+    pub(crate) fn new(http_client: reqwest::Client, cache: Arc<dyn QueryCache>) -> Self {
         Self {
-            cache_location: Some(cache_location),
+            query_cache: cache,
             http_client,
-            ..Default::default()
+            cache: RwLock::new(HashMap::new()),
+            last_update: AtomicU64::new(0),
         }
     }
 
     /// Loads cache from file and fetches all yt-dlp instances
     pub(crate) async fn load_cache(&self) {
-        let Some(cache_location) = &self.cache_location else {
-            // no-op if cache location is not set
-            return;
-        };
-
-        let keys: Vec<String> = tokio::fs::read_to_string(cache_location)
-            .await
-            .context("Failed to read yt-dlp cache file")
-            .and_then(|readed| {
-                serde_json::from_str(&readed).context("Failed to parse yt-dlp cache json")
-            })
-            .unwrap_or_else(|err| {
-                warn!("{err:#}");
-                Vec::new()
-            });
-        self.update_inner(keys).await;
-    }
-
-    /// Saves cache to file
-    pub(crate) async fn save_cache(&self) {
-        if let Some(cache_location) = &self.cache_location {
-            let serialized = {
-                let cache = self.cache.read().await;
-                let keys = cache.keys().collect::<Vec<_>>();
-                serde_json::to_string(&keys).unwrap()
-            };
-            if let Err(err) = tokio::fs::write(cache_location, serialized).await {
-                warn!("Failed to write yt-dlp cache to {cache_location:?}: {err}");
-            }
-        }
+        self.update_inner(self.query_cache.load_all()).await;
     }
 
     /// Updates all yt-dlp instances in the cache
@@ -230,17 +213,38 @@ impl Resolver {
 
     /// Resolves a query to a yt-dlp instance, caching the result
     pub(crate) async fn resolve(&self, query: &str) -> Option<YtDlp> {
+        // For non-URL queries, check the cache first
+        let query = if !query.starts_with("http") {
+            if let Some(webpage_url) = self.query_cache.load(query) {
+                Cow::from(webpage_url)
+            } else {
+                Cow::from(query)
+            }
+        } else {
+            Cow::from(query)
+        };
+
         // Two separate locks to avoid blocking everything on the long (up to 2s) yt-dlp query
-        let cached_yt_dlp = self.cache.read().await.get(query).cloned();
+        let cached_yt_dlp = self.cache.read().await.get(query.as_ref()).cloned();
         match cached_yt_dlp {
             Some(yt_dlp) => Some(yt_dlp),
             None => {
-                let yt_dlp = Self::fetch(self.http_client.clone(), query).await?;
+                let yt_dlp = Self::fetch(self.http_client.clone(), query.as_ref()).await?;
+
+                // Save the query to webpage_url mapping if it was not a URL query
+                if !query.starts_with("http") {
+                    if let Err(err) = self
+                        .query_cache
+                        .save(query.as_ref(), &yt_dlp.metadata.source_url)
+                    {
+                        warn!("Failed to save yt-dlp query '{query}' to cache: {err}");
+                    }
+                }
 
                 self.cache
                     .write()
                     .await
-                    .insert(query.to_string(), yt_dlp.clone());
+                    .insert(yt_dlp.metadata.source_url.clone().into(), yt_dlp.clone());
                 Some(yt_dlp)
             }
         }
@@ -272,7 +276,7 @@ impl Resolver {
             // if by any chance this failed we will just update the cache
             .unwrap_or(last_update + Self::CACHE_UPDATE_INTERVAL_SEC);
         if unix_now - last_update < Self::CACHE_UPDATE_INTERVAL_SEC {
-            // no-op if the cache is up to date
+            info!("Cache is up to date, skipping update");
             return;
         }
         self.last_update.store(unix_now, Ordering::Relaxed);
@@ -283,19 +287,13 @@ impl Resolver {
                 (query, yt_dlp)
             })
             .buffer_unordered(Self::CONCURRENCY)
-            .collect::<Vec<_>>()
+            .filter_map(|(query, yt_dlp)| async move { yt_dlp.map(|yt_dlp| (query, yt_dlp)) })
+            .collect::<HashMap<_, _>>()
             .await;
 
         // override existing cache with the new values and drop entry if it failed to fetch
         // so the following request will try it again instead of using the outdated value
-        let mut cache = self.cache.write().await;
-        for (query, yt_dlp) in items {
-            if let Some(yt_dlp) = yt_dlp {
-                cache.insert(query, yt_dlp);
-            } else {
-                cache.remove(&query);
-            }
-        }
+        *self.cache.write().await = items;
     }
 }
 
