@@ -98,12 +98,10 @@ impl Resolver {
             .send()
             .await
             .is_ok_and(|response| {
-                response
-                    .headers()
-                    .get("content-type")
-                    .is_some_and(|content_type| {
-                        content_type == "audio/mpeg" || content_type == "audio/ogg"
-                    })
+                // We've been redirected to the online stream which means it's online.
+                // It might be better to check the redirect URL, but the redirect policy should
+                // be set per http client, so it is much easier to check the path of the response.
+                response.url().path().ends_with("/online")
             })
     }
 }
