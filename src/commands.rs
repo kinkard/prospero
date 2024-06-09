@@ -53,7 +53,9 @@ pub(crate) async fn leave(ctx: Context<'_>) -> Result<(), anyhow::Error> {
 /// Ask bot to say "Pong!"
 #[poise::command(slash_command)]
 pub(crate) async fn ping(ctx: Context<'_>) -> Result<(), anyhow::Error> {
-    ctx.reply("Pong!").await?;
+    // Send a ephemeral reply to reduce spam
+    ctx.send(CreateReply::default().content("Pong!").ephemeral(true))
+        .await?;
     Ok(())
 }
 
@@ -208,14 +210,9 @@ pub(crate) async fn connect_spotify(
         "Spotify account connected successfully.".into()
     };
 
-    ctx.send(
-        CreateReply::default()
-            .content(reply)
-            .reply(true)
-            // Show reply only to user who invoked the command to avoid credentials leakage
-            .ephemeral(true),
-    )
-    .await?;
+    // Show reply only to user who invoked the command to avoid credentials leakage
+    ctx.send(CreateReply::default().content(reply).ephemeral(true))
+        .await?;
     Ok(())
 }
 
