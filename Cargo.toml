@@ -16,6 +16,7 @@ lto = "thin"
 anyhow = "1"
 dotenv = "0.15"
 futures = "0.3"
+rusqlite = { version = "0.31", features = ["bundled"] }
 smallvec = { version = "1", features = ["union"] }
 tokio = { version = "1", features = ["rt-multi-thread"] }
 tracing = "0.1"
@@ -40,7 +41,8 @@ librespot-discovery = { git = "https://github.com/librespot-org/librespot.git", 
 librespot-metadata = { git = "https://github.com/librespot-org/librespot.git", rev = "8f9bec21" }
 librespot-playback = { git = "https://github.com/librespot-org/librespot.git", rev = "8f9bec21", default-features = false }
 flume = { version = "0.11", default-features = false }
-rusqlite = { version = "0.31", features = ["bundled"] }
+hex = { version = "0.4" }
+sha1 = "0.10"
 
 [dev-dependencies]
 pretty_assertions = "1"

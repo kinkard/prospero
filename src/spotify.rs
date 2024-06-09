@@ -27,6 +27,7 @@ use librespot::playback::{
     player,
 };
 use serenity::all::GuildId;
+use sha1::{Digest, Sha1};
 use smallvec::{smallvec, SmallVec};
 use songbird::input::{
     core::io::MediaSource, AudioStream, AudioStreamError, AuxMetadata, Compose, Input,
@@ -128,8 +129,16 @@ struct Player {
 
 impl Player {
     async fn new(username: String, password: String) -> Result<Self, anyhow::Error> {
+        let device_id = hex::encode(Sha1::digest(username.as_bytes()));
+
         let credentials = Credentials::with_password(username, password);
-        let session = Session::new(SessionConfig::default(), None);
+        let session = Session::new(
+            SessionConfig {
+                device_id,
+                ..Default::default()
+            },
+            None,
+        );
         session
             .connect(credentials, true)
             .await
