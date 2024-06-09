@@ -2,6 +2,14 @@ use std::collections::HashMap;
 use std::io;
 use std::sync::Arc;
 
+// Re-export librespot entities to use separate inner modules as they are in the original librespot
+mod librespot {
+    pub use librespot_core as core;
+    pub use librespot_discovery as discovery;
+    pub use librespot_metadata as metadata;
+    pub use librespot_playback as playback;
+}
+
 use anyhow::Context;
 use async_trait::async_trait;
 use futures::stream::{self, StreamExt};
