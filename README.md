@@ -7,6 +7,7 @@ Prospero is a minimalistic Discord music bot, inspired by [aoede](https://github
 The following env variables (either via set or via `.env` file) sould be set:
 
 - **DISCORD_TOKEN** - Discord bot token
+- **DATA_DIR** - path where bot can store its cache
 
 ```sh
 cargo run --release
@@ -15,6 +16,7 @@ cargo run --release
 alternatively, Docker image can be used:
 
 ```sh
+# Optional, https://hub.docker.com/repository/docker/kinkard/prospero can be used instead
 make docker
 
 echo "DISCORD_TOKEN=my discord token" > .env
