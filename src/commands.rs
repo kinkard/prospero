@@ -234,7 +234,7 @@ async fn form_currently_played(tracks: &[songbird::tracks::TrackHandle]) -> Crea
     // and then add all the other tracks to the description
     let mut next_str = String::new();
     let mut remaining = 0;
-    while let Some(track) = tracks.next() {
+    for track in &mut tracks {
         let typemap = track.typemap().read().await;
         let description = typemap.get::<track_info::TrackInfoKey>().unwrap();
 

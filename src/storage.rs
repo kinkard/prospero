@@ -78,7 +78,7 @@ impl yt_dlp::QueryCache for Storage {
                     WHERE query = ?1",
             )
             .expect("Failed to prepare SELECT statement");
-        let mut rows = stmt.query_map([query], |row| Ok(row.get(0)?)).ok()?;
+        let mut rows = stmt.query_map([query], |row| row.get(0)).ok()?;
         rows.next().transpose().ok()?
     }
 
@@ -87,7 +87,7 @@ impl yt_dlp::QueryCache for Storage {
         let mut stmt = db
             .prepare("SELECT DISTINCT webpage_url FROM yt_dlp_queries")
             .expect("Failed to prepare SELECT statement");
-        let rows = stmt.query_map([], |row| Ok(row.get(0)?)).ok();
+        let rows = stmt.query_map([], |row| row.get(0)).ok();
         rows.into_iter().flatten().flatten().collect()
     }
 }
