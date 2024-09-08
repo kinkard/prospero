@@ -105,8 +105,11 @@ impl YtDlp {
                 })
             })?;
 
-        let yt_dlp_output: YtDlpOutput = serde_json::from_slice(&command.stdout)
-            .map_err(|e| AudioStreamError::Fail(Box::new(e)))?;
+        let yt_dlp_output: YtDlpOutput = serde_json::from_slice(&command.stdout).map_err(|e| {
+            let output = String::from_utf8_lossy(&command.stdout);
+            warn!("Failed to parse yt-dlp with error: {e}, output: {output}");
+            AudioStreamError::Fail(Box::new(e))
+        })?;
 
         Ok(yt_dlp_output)
     }
