@@ -2,13 +2,9 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::ErrorKind;
 use std::str::FromStr;
-use std::sync::{
-    atomic::{AtomicU64, Ordering},
-    Arc,
-};
+use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::stream::{self, StreamExt};
 use reqwest::{
     header::{HeaderName, HeaderValue},
     Client,
@@ -171,23 +167,27 @@ pub(crate) trait QueryCache: Send + Sync {
     /// Loads found webpage_url for the query if it is known
     fn load(&self, query: &str) -> Option<String>;
     /// Returns all known webpage_urls
+    #[allow(unused)]
     fn load_all(&self) -> Vec<String>;
+}
+
+#[derive(Clone)]
+struct CacheEntry {
+    loaded_at: std::time::Instant,
+    yt_dlp: YtDlp,
 }
 
 pub(crate) struct Resolver {
     /// Query to webpage_url cache to speed up the yt-dlp queries
     query_cache: Arc<dyn QueryCache>,
     /// Recently fetched yt-dlp instances
-    cache: RwLock<HashMap<String, YtDlp>>,
-    /// Unix timestamp of the last time the cache was updated
-    last_update: AtomicU64,
+    cache: RwLock<HashMap<String, CacheEntry>>,
 
     http_client: reqwest::Client,
 }
 
 impl Resolver {
-    const CONCURRENCY: usize = 8;
-    const CACHE_UPDATE_INTERVAL_SEC: u64 = 24 * 60 * 60;
+    const CACHE_EXPIRATION: std::time::Duration = std::time::Duration::from_secs(1 * 60 * 60);
 
     /// Creates a new yt-dlp resolver with a cache file
     pub(crate) fn new(http_client: reqwest::Client, cache: Arc<dyn QueryCache>) -> Self {
@@ -195,23 +195,7 @@ impl Resolver {
             query_cache: cache,
             http_client,
             cache: RwLock::new(HashMap::new()),
-            last_update: AtomicU64::new(0),
         }
-    }
-
-    /// Loads cache from file and fetches all yt-dlp instances
-    pub(crate) async fn load_cache(&self) {
-        self.update_inner(self.query_cache.load_all()).await;
-    }
-
-    /// Updates all yt-dlp instances in the cache
-    pub(crate) async fn update_cache(&self) {
-        // Request all YtDlp instances anew using the current cache keys
-        let keys = {
-            let cache = self.cache.read().await;
-            cache.keys().cloned().collect::<Vec<_>>()
-        };
-        self.update_inner(keys).await;
     }
 
     /// Resolves a query to a yt-dlp instance, caching the result
@@ -230,8 +214,12 @@ impl Resolver {
         // Two separate locks to avoid blocking everything on the long (up to 2s) yt-dlp query
         let cached_yt_dlp = self.cache.read().await.get(query.as_ref()).cloned();
         match cached_yt_dlp {
-            Some(yt_dlp) => Some(yt_dlp),
-            None => {
+            Some(CacheEntry { loaded_at, yt_dlp })
+                if loaded_at.elapsed() < Self::CACHE_EXPIRATION =>
+            {
+                Some(yt_dlp)
+            }
+            _ => {
                 let yt_dlp = Self::fetch(self.http_client.clone(), query.as_ref()).await?;
 
                 // Save the query to webpage_url mapping if it was not a URL query
@@ -244,10 +232,13 @@ impl Resolver {
                     }
                 }
 
-                self.cache
-                    .write()
-                    .await
-                    .insert(yt_dlp.metadata.source_url.clone().into(), yt_dlp.clone());
+                self.cache.write().await.insert(
+                    yt_dlp.metadata.source_url.clone().into(),
+                    CacheEntry {
+                        loaded_at: std::time::Instant::now(),
+                        yt_dlp: yt_dlp.clone(),
+                    },
+                );
                 Some(yt_dlp)
             }
         }
@@ -268,35 +259,6 @@ impl Resolver {
             begin.elapsed().as_millis()
         );
         Some(yt_dlp)
-    }
-
-    /// Updates the specified keys in the cache
-    async fn update_inner(&self, keys: Vec<String>) {
-        let last_update = self.last_update.load(Ordering::Relaxed);
-        let unix_now = std::time::UNIX_EPOCH
-            .elapsed()
-            .map(|t| t.as_secs())
-            // if by any chance this failed we will just update the cache
-            .unwrap_or(last_update + Self::CACHE_UPDATE_INTERVAL_SEC);
-        if unix_now - last_update < Self::CACHE_UPDATE_INTERVAL_SEC {
-            info!("Cache is up to date, skipping update");
-            return;
-        }
-        self.last_update.store(unix_now, Ordering::Relaxed);
-
-        let items = stream::iter(keys)
-            .map(|query| async move {
-                let yt_dlp = Self::fetch(self.http_client.clone(), &query).await;
-                (query, yt_dlp)
-            })
-            .buffer_unordered(Self::CONCURRENCY)
-            .filter_map(|(query, yt_dlp)| async move { yt_dlp.map(|yt_dlp| (query, yt_dlp)) })
-            .collect::<HashMap<_, _>>()
-            .await;
-
-        // override existing cache with the new values and drop entry if it failed to fetch
-        // so the following request will try it again instead of using the outdated value
-        *self.cache.write().await = items;
     }
 }
 

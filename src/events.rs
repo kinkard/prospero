@@ -11,7 +11,7 @@ use crate::Data;
 
 /// Invoked once, quickly after bot started, when the cache has received and inserted all data
 /// from guilds. Can be considered as an entry point for all preparations.
-pub(crate) async fn cache_ready(ctx: &Context, data: &Data, guilds: &[GuildId]) {
+pub(crate) async fn cache_ready(ctx: &Context, _data: &Data, guilds: &[GuildId]) {
     let self_user_id = {
         let self_user = ctx.cache.current_user();
         info!("{} is connected!", self_user.name);
@@ -42,8 +42,6 @@ pub(crate) async fn cache_ready(ctx: &Context, data: &Data, guilds: &[GuildId]) 
                 .await;
         }
     }
-
-    data.yt_dlp_resolver.load_cache().await;
 }
 
 /// Invoked when a user joins, leaves or moves to a voice channel.
@@ -130,17 +128,11 @@ async fn bot_left_vc(ctx: &Context, data: &Data, guild_id: GuildId) {
 }
 
 /// Invoked when user joined a voice channel
-async fn user_joined_vc(ctx: &Context, data: &Data, guild_id: GuildId, _channel_id: ChannelId) {
-    let users_in_vc = {
-        let guild = ctx.cache.guild(guild_id).unwrap();
-        guild.voice_states.len()
-    };
-
-    // the first person joined a vc, update yt_dlp_resolver
-    if users_in_vc == 1 {
-        info!("First person joined a vc, updating yt_dlp_resolver's cache");
-        data.yt_dlp_resolver.update_cache().await;
-    }
+async fn user_joined_vc(_ctx: &Context, _data: &Data, _guild_id: GuildId, _channel_id: ChannelId) {
+    // let users_in_vc = {
+    //     let guild = ctx.cache.guild(guild_id).unwrap();
+    //     guild.voice_states.len()
+    // };
 }
 
 /// Invoked when user changed voice channel
