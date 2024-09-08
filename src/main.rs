@@ -10,6 +10,7 @@ use tracing::{info, warn};
 mod commands;
 mod events;
 mod radiot;
+#[cfg(feature = "spotify")]
 mod spotify;
 mod storage;
 mod track_info;
@@ -18,6 +19,7 @@ mod yt_dlp;
 struct Data {
     yt_dlp_resolver: yt_dlp::Resolver,
     radio_t_resolver: radiot::Resolver,
+    #[cfg(feature = "spotify")]
     spotify_resolver: spotify::Resolver,
 }
 type Context<'a> = poise::Context<'a, Data, anyhow::Error>;
@@ -42,9 +44,10 @@ async fn main() {
 
     let http_client = reqwest::Client::new();
     let bot_data = Data {
-        yt_dlp_resolver: yt_dlp::Resolver::new(http_client.clone(), storage.clone()),
+        #[cfg(feature = "spotify")]
+        spotify_resolver: spotify::Resolver::new(storage.clone()),
+        yt_dlp_resolver: yt_dlp::Resolver::new(http_client.clone(), storage),
         radio_t_resolver: radiot::Resolver::new(http_client.clone()),
-        spotify_resolver: spotify::Resolver::new(storage),
     };
 
     // Configure the client with your Discord bot token in the environment.
@@ -67,6 +70,7 @@ async fn main() {
                 commands::play(),
                 commands::skip(),
                 commands::stop(),
+                #[cfg(feature = "spotify")]
                 commands::connect_spotify(),
             ],
             event_handler: |ctx, event, _framework, data| {

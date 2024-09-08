@@ -85,8 +85,23 @@ pub(crate) async fn play(ctx: Context<'_>, query: String) -> Result<(), anyhow::
         }
     });
 
+    #[cfg(feature = "spotify")]
+    let spotify_tracks: Option<SmallVec<[(track_info::Metadata, Input); 1]>> = ctx
+        .data()
+        .spotify_resolver
+        .resolve(guild_id, &query)
+        .await
+        .map(|tracks| {
+            tracks
+                .into_iter()
+                .map(|track| (track.metadata().clone(), track.into()))
+                .collect()
+        });
+    #[cfg(not(feature = "spotify"))]
+    let spotify_tracks: Option<SmallVec<[(track_info::Metadata, Input); 1]>> = None;
+
     let resolved_items: SmallVec<[(track_info::Metadata, Input); 1]> =
-        if let Some(tracks) = ctx.data().spotify_resolver.resolve(guild_id, &query).await {
+        if let Some(tracks) = spotify_tracks {
             if tracks.is_empty() {
                 ctx.reply(format!(
                     "Invalid Spotify query '{query}'. Please try something else"
@@ -95,9 +110,6 @@ pub(crate) async fn play(ctx: Context<'_>, query: String) -> Result<(), anyhow::
                 return Ok(());
             }
             tracks
-                .into_iter()
-                .map(|track| (track.metadata().clone(), track.into()))
-                .collect()
         } else if let Some(podcast) = ctx.data().radio_t_resolver.resolve(&query).await {
             smallvec![(podcast.metadata().clone(), podcast.into())]
         } else if let Some(yt_dlp) = ctx.data().yt_dlp_resolver.resolve(&query).await {
@@ -192,6 +204,7 @@ pub(crate) async fn stop(ctx: Context<'_>) -> Result<(), anyhow::Error> {
 /// Connect Spotify account to be used by bot.
 /// https://www.spotify.com/us/account/set-device-password/
 #[poise::command(guild_only, slash_command)]
+#[cfg(feature = "spotify")]
 pub(crate) async fn connect_spotify(
     ctx: Context<'_>,
     username: String,

@@ -118,13 +118,14 @@ async fn bot_changed_vc(
 }
 
 /// Invoked when bot left voice channel
-async fn bot_left_vc(ctx: &Context, data: &Data, guild_id: GuildId) {
+async fn bot_left_vc(ctx: &Context, _data: &Data, guild_id: GuildId) {
     info!(
         "Left voice chat in '{}' guild",
         &ctx.cache.guild(guild_id).unwrap().name
     );
 
-    data.spotify_resolver.disconnect(guild_id).await;
+    #[cfg(feature = "spotify")]
+    _data.spotify_resolver.disconnect(guild_id).await;
 }
 
 /// Invoked when user joined a voice channel

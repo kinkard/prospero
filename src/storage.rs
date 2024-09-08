@@ -1,9 +1,12 @@
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+#[cfg(feature = "spotify")]
 use serenity::all::GuildId;
 
-use crate::{spotify, yt_dlp};
+#[cfg(feature = "spotify")]
+use crate::spotify;
+use crate::yt_dlp;
 
 pub(crate) struct Storage(Mutex<rusqlite::Connection>);
 
@@ -29,6 +32,7 @@ impl Storage {
     }
 }
 
+#[cfg(feature = "spotify")]
 impl spotify::CredentialsStorage for Storage {
     fn save(&self, guild_id: GuildId, username: &str, password: &str) -> Result<(), anyhow::Error> {
         self.0.lock().unwrap().execute(
@@ -98,6 +102,7 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     #[test]
+    #[cfg(feature = "spotify")]
     fn spotify_credentials_storage() {
         let storage: Arc<dyn spotify::CredentialsStorage> = Storage::new(":memory:").unwrap();
 
