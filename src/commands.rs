@@ -4,7 +4,7 @@ use poise::CreateReply;
 use serenity::builder::{CreateEmbed, CreateMessage};
 use smallvec::{smallvec, SmallVec};
 use songbird::input::Input;
-use tracing::{info, warn};
+use tracing::info;
 
 use crate::{track_info, Context};
 
@@ -85,6 +85,8 @@ pub(crate) async fn play(ctx: Context<'_>, query: String) -> Result<(), anyhow::
         }
     });
 
+    let _ = ctx.reply(format!("Processing {query}...")).await;
+
     #[cfg(feature = "spotify")]
     let spotify_tracks: Option<SmallVec<[(track_info::Metadata, Input); 1]>> = ctx
         .data()
@@ -140,20 +142,14 @@ pub(crate) async fn play(ctx: Context<'_>, query: String) -> Result<(), anyhow::
     let queue_info = form_currently_played(&vc.queue().current_queue()).await;
     drop(vc);
 
-    if let Err(err) = ctx
-        .send(CreateReply::default().embed(queue_info.clone()))
-        .await
-    {
-        warn!("Failed to reply: {err}. Falling back to sending a message");
-
-        // Fallback to sending a message if embed failed
-        ctx.channel_id()
-            .send_message(
-                ctx.serenity_context(),
-                CreateMessage::default().embed(queue_info),
-            )
-            .await?;
-    }
+    // fetching track info from yt-dlp may take some time (youtube seems to slow down such requests),
+    // so instead of replying we send a message.
+    ctx.channel_id()
+        .send_message(
+            ctx.serenity_context(),
+            CreateMessage::default().embed(queue_info),
+        )
+        .await?;
 
     Ok(())
 }
