@@ -16,6 +16,7 @@ lto = "thin"
 anyhow = "1"
 dotenv = "0.15"
 futures = "0.3"
+mimalloc = { version = "*" }
 rusqlite = { version = "0.33", features = ["bundled"] }
 smallvec = { version = "1", features = ["union"] }
 tokio = { version = "1", features = ["rt-multi-thread"] }
