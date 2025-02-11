@@ -3,7 +3,7 @@ use std::fmt::Write;
 use poise::CreateReply;
 use serenity::builder::{CreateEmbed, CreateMessage};
 use smallvec::{smallvec, SmallVec};
-use songbird::input::Input;
+use songbird::{input::Input, tracks::Track};
 use tracing::info;
 
 use crate::{track_info, Context};
@@ -127,7 +127,9 @@ pub(crate) async fn play(ctx: Context<'_>, query: String) -> Result<(), anyhow::
     let vc = vc.await??;
     let mut vc = vc.lock().await;
     for (metadata, input) in resolved_items {
-        let track_handle = vc.enqueue(input.into()).await;
+        // Reduce volume to 50% to avoid ear damage for new users
+        let track = Track::from(input).volume(0.5);
+        let track_handle = vc.enqueue(track).await;
 
         // Attach description to the track handle so we can display each entry in the queue
         track_handle
