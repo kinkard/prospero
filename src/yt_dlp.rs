@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use reqwest::{
-    header::{HeaderName, HeaderValue},
     Client,
+    header::{HeaderName, HeaderValue},
 };
 use serde::Deserialize;
 use songbird::input::{AudioStream, AudioStreamError, AuxMetadata, Compose, HttpRequest, Input};
@@ -187,7 +187,7 @@ pub(crate) struct Resolver {
 }
 
 impl Resolver {
-    const CACHE_EXPIRATION: std::time::Duration = std::time::Duration::from_secs(1 * 60 * 60);
+    const CACHE_EXPIRATION: std::time::Duration = std::time::Duration::from_secs(60 * 60);
 
     /// Creates a new yt-dlp resolver with a cache file
     pub(crate) fn new(http_client: reqwest::Client, cache: Arc<dyn QueryCache>) -> Self {
