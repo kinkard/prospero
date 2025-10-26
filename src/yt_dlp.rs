@@ -83,7 +83,7 @@ impl YtDlp {
             query,
             "-j",
             "-f",
-            "ba[abr>0][vcodec=none]/best",
+            "bestaudio",
             "--no-playlist",
             "--default-search",
             "ytsearch",
