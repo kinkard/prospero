@@ -16,9 +16,6 @@ mod storage;
 mod track_info;
 mod yt_dlp;
 
-#[global_allocator]
-static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
-
 struct Data {
     yt_dlp_resolver: yt_dlp::Resolver,
     radio_t_resolver: radiot::Resolver,

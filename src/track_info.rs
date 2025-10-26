@@ -50,12 +50,6 @@ impl From<Metadata> for AuxMetadata {
     }
 }
 
-pub(crate) struct TrackInfoKey;
-
-impl songbird::typemap::TypeMapKey for TrackInfoKey {
-    type Value = TrackInfo;
-}
-
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub(crate) struct TrackInfo {
     /// Track metadata

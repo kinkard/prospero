@@ -1,12 +1,13 @@
 use std::fmt::Write;
+use std::sync::Arc;
 
 use poise::CreateReply;
 use serenity::builder::{CreateEmbed, CreateMessage};
-use smallvec::{smallvec, SmallVec};
+use smallvec::{SmallVec, smallvec};
 use songbird::{input::Input, tracks::Track};
 use tracing::info;
 
-use crate::{track_info, Context};
+use crate::{Context, track_info};
 
 fn get_author_vc(ctx: &Context<'_>) -> Option<serenity::model::id::ChannelId> {
     ctx.guild()?
@@ -127,19 +128,17 @@ pub(crate) async fn play(ctx: Context<'_>, query: String) -> Result<(), anyhow::
     let vc = vc.await??;
     let mut vc = vc.lock().await;
     for (metadata, input) in resolved_items {
-        // Reduce volume to 50% to avoid ear damage for new users
-        let track = Track::from(input).volume(0.5);
-        let track_handle = vc.enqueue(track).await;
-
         // Attach description to the track handle so we can display each entry in the queue
-        track_handle
-            .typemap()
-            .write()
-            .await
-            .insert::<track_info::TrackInfoKey>(track_info::TrackInfo::new(
+        let track = Track::new_with_data(
+            input,
+            Arc::new(track_info::TrackInfo::new(
                 metadata,
                 ctx.author().name.clone(),
-            ));
+            )),
+        )
+        // Reduce volume to 50% to avoid ear damage for new users
+        .volume(0.5);
+        let _ = vc.enqueue(track).await;
     }
     let queue_info = form_currently_played(&vc.queue().current_queue()).await;
     drop(vc);
@@ -232,10 +231,8 @@ async fn form_currently_played(tracks: &[songbird::tracks::TrackHandle]) -> Crea
 
     // Use the first track in the queue to form the embed
     let embed = if let Some(track) = tracks.next() {
-        let typemap = track.typemap().read().await;
-        typemap
-            .get::<track_info::TrackInfoKey>()
-            .unwrap()
+        track
+            .data::<track_info::TrackInfo>()
             .build_embed()
             .title("Now Playing")
     } else {
@@ -246,8 +243,7 @@ async fn form_currently_played(tracks: &[songbird::tracks::TrackHandle]) -> Crea
     let mut next_str = String::new();
     let mut remaining = 0;
     for track in &mut tracks {
-        let typemap = track.typemap().read().await;
-        let description = typemap.get::<track_info::TrackInfoKey>().unwrap();
+        let description = track.data::<track_info::TrackInfo>();
 
         let prev_size = next_str.len();
         let _ = writeln!(next_str, "- {description}");
