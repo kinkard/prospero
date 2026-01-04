@@ -1,4 +1,4 @@
-FROM rust:alpine AS builder
+FROM rust:alpine3.22 AS builder
 
 # Dependencies for some crates
 RUN apk add --no-cache alpine-sdk cmake
@@ -16,7 +16,7 @@ COPY src ./src
 RUN touch -a -m ./src/main.rs
 RUN cargo build --release
 
-FROM alpine AS runtime
+FROM alpine:3.22 AS runtime
 # Prospero uses yt-dlp to play music from YouTube
 COPY --from=kinkard/yt-dlp-alpine:latest /usr/local/bin/yt-dlp /usr/local/bin/yt-dlp
 COPY --from=builder /usr/src/app/target/release/prospero /usr/local/bin/prospero

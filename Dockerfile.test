@@ -1,4 +1,4 @@
-FROM rust:alpine AS builder
+FROM rust:alpine3.22 AS builder
 
 # Dependencies for some crates
 RUN apk add --no-cache alpine-sdk cmake
