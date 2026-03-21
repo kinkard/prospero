@@ -109,7 +109,6 @@ impl YtDlp {
         Ok(yt_dlp_output)
     }
 
-    /// Provides track metadata
     pub(crate) const fn metadata(&self) -> &track_info::Metadata {
         &self.metadata
     }
@@ -143,18 +142,12 @@ impl Compose for YtDlp {
 }
 
 #[derive(Deserialize)]
-pub(crate) struct YtDlpOutput {
-    // artist: Option<String>,
-    // album: Option<String>,
-    // channel: Option<String>,
+struct YtDlpOutput {
     duration: Option<f64>,
     filesize: Option<u64>,
     http_headers: Option<HashMap<String, String>>,
-    // release_date: Option<String>,
     thumbnail: Option<String>,
     title: Option<String>,
-    // upload_date: Option<String>,
-    // uploader: Option<String>,
     url: String,
     webpage_url: Option<String>,
 }
@@ -229,7 +222,6 @@ impl Resolver {
         }
     }
 
-    /// Inner function to fetch a yt-dlp instance
     async fn fetch(http_client: reqwest::Client, query: &str) -> Option<YtDlp> {
         let begin: std::time::Instant = std::time::Instant::now();
         let yt_dlp = match YtDlp::new(http_client, query).await {
@@ -266,7 +258,6 @@ mod tests {
             metadata.title,
             Some("Rick Astley - Never Gonna Give You Up (Official Music Video)".to_string())
         );
-        // assert_eq!(metadata.artist, Some("Rick Astley".to_string()));
         assert_eq!(metadata.duration, Some(Duration::from_secs(212)));
         assert_eq!(
             metadata.source_url,
@@ -291,7 +282,6 @@ mod tests {
                 "Нейромонах Феофан - Притоптать (official video) | Neuromonakh Feofan".to_string()
             )
         );
-        // assert_eq!(metadata.artist, Some("Neuromonakh Feofan".to_string()));
         assert_eq!(metadata.duration, Some(Duration::from_secs(210)));
         assert_eq!(
             metadata.source_url,

@@ -21,7 +21,7 @@ type Context<'a> = poise::Context<'a, Data, anyhow::Error>;
 async fn main() {
     tracing_subscriber::fmt::init();
 
-    // Load env varialbes from .env if any
+    // Load env variables from .env if any
     if let Err(err) = dotenv::dotenv() {
         info!("Skipping .env file because of {err}");
     }

@@ -137,12 +137,7 @@ async fn bot_left_vc(ctx: &Context, _data: &Data, guild_id: GuildId) {
     );
 }
 
-/// Invoked when user joined a voice channel
 async fn user_joined_vc(_ctx: &Context, _data: &Data, _guild_id: GuildId, _channel_id: ChannelId) {
-    // let users_in_vc = {
-    //     let guild = ctx.cache.guild(guild_id).unwrap();
-    //     guild.voice_states.len()
-    // };
 }
 
 /// Invoked when user changed voice channel
@@ -197,17 +192,14 @@ fn bot_left_alone(ctx: &Context, guild_id: GuildId) -> bool {
         .get(&ctx.cache.current_user().id)
         .and_then(|voice_state| voice_state.channel_id);
 
-    guild
+    !guild
         .voice_states
         .values()
         .filter(|voice_state| voice_state.channel_id == bot_channel)
-        // Ignore non-members and bots
-        .filter(|voice_state| {
+        .any(|voice_state| {
             voice_state
                 .member
                 .as_ref()
                 .is_some_and(|member| !member.user.bot)
         })
-        .count()
-        == 0
 }

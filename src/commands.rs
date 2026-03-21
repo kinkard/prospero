@@ -53,7 +53,6 @@ pub(crate) async fn leave(ctx: Context<'_>) -> Result<(), anyhow::Error> {
 /// Ask bot to say "Pong!"
 #[poise::command(slash_command)]
 pub(crate) async fn ping(ctx: Context<'_>) -> Result<(), anyhow::Error> {
-    // Send a ephemeral reply to reduce spam
     ctx.send(CreateReply::default().content("Pong!").ephemeral(true))
         .await?;
     Ok(())
@@ -143,8 +142,7 @@ pub(crate) async fn skip(ctx: Context<'_>) -> Result<(), anyhow::Error> {
 
     let vc = vc.lock().await;
 
-    // Unfortunately, `queue().skip()` doesn't update queue immidiately, so we take the queue *before*
-    // and form the embed with tracks after the current one via `get(1..)`
+    // queue().skip() doesn't update the queue immediately, so take it *before* skipping
     let queue_info =
         form_currently_played(vc.queue().current_queue().get(1..).unwrap_or_default()).await;
     let _ = vc.queue().skip();

@@ -12,13 +12,9 @@ use songbird::input::AuxMetadata;
 #[derive(Clone)]
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub(crate) struct Metadata {
-    /// Track title
     pub(crate) title: Box<str>,
-    /// Source URL of the track. Usually a URL to the track page on the platform
     pub(crate) source_url: Box<str>,
-    /// Thumbnail url of the track if available
     pub(crate) thumbnail_url: Option<Box<str>>,
-    /// Track duration in seconds if available. For infinite streams it is None
     pub(crate) duration_sec: Option<NonZeroU32>,
 }
 
@@ -52,9 +48,7 @@ impl From<Metadata> for AuxMetadata {
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub(crate) struct TrackInfo {
-    /// Track metadata
     metadata: Metadata,
-    /// Author of the /play command
     added_by: Box<str>,
 }
 
@@ -69,7 +63,7 @@ impl TrackInfo {
     /// Creates Discord embed with the track info
     pub(crate) fn build_embed(&self) -> CreateEmbed {
         let mut embed = CreateEmbed::default()
-            .description(format!("{self}"))
+            .description(self.to_string())
             .color(Colour::RED)
             .footer(CreateEmbedFooter::new(format!(
                 "Added by {}",
