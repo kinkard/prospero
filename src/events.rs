@@ -180,6 +180,8 @@ async fn setup_vc(ctx: &Context, guild_id: GuildId) {
         let mut vc = vc.lock().await;
         // 96k is a default Discord bitrate in guilds without nitro so no need to send more data
         vc.set_bitrate(songbird::driver::Bitrate::BitsPerSecond(96_000));
+        // Deafen the bot since it only plays audio and never listens
+        let _ = vc.deafen(true).await;
     }
 }
 
