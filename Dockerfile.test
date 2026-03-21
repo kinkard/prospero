@@ -11,10 +11,10 @@ WORKDIR /usr/src/app
 COPY Cargo.toml Cargo.lock ./
 RUN mkdir src && echo 'fn main() { println!("Dummy image called!"); }' > src/main.rs
 RUN cargo build
-RUN rm -rf src
 
 # Now run tests
 COPY src ./src
+RUN touch -a -m ./src/main.rs
 RUN cargo build
 
 # Check formatting before building to avoid unnecessary rebuilds
