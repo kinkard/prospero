@@ -3,6 +3,8 @@ FROM rust:alpine3.22 AS builder
 # Dependencies for some crates
 RUN apk add --no-cache alpine-sdk cmake
 
+RUN rustup component add rustfmt clippy
+
 WORKDIR /usr/src/app
 
 # First build a dummy target to cache dependencies in a separate Docker layer
