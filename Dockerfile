@@ -9,11 +9,10 @@ WORKDIR /usr/src/app
 COPY Cargo.toml Cargo.lock ./
 RUN mkdir src && echo 'fn main() { println!("Dummy image called!"); }' > src/main.rs
 RUN cargo build --release
+RUN rm -rf src
 
 # Now build the real target
 COPY src ./src
-# Update modified attribute as otherwise cargo won't rebuild it
-RUN touch -a -m ./src/main.rs
 RUN cargo build --release
 
 FROM alpine:3.22 AS runtime

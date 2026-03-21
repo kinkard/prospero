@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use poise::CreateReply;
 use serenity::builder::{CreateEmbed, CreateMessage};
-use smallvec::{SmallVec, smallvec};
 use songbird::{input::Input, tracks::Track};
 use tracing::info;
 
@@ -88,35 +87,11 @@ pub(crate) async fn play(ctx: Context<'_>, query: String) -> Result<(), anyhow::
 
     let _ = ctx.reply(format!("Processing {query}...")).await;
 
-    #[cfg(feature = "spotify")]
-    let spotify_tracks: Option<SmallVec<[(track_info::Metadata, Input); 1]>> = ctx
-        .data()
-        .spotify_resolver
-        .resolve(guild_id, &query)
-        .await
-        .map(|tracks| {
-            tracks
-                .into_iter()
-                .map(|track| (track.metadata().clone(), track.into()))
-                .collect()
-        });
-    #[cfg(not(feature = "spotify"))]
-    let spotify_tracks: Option<SmallVec<[(track_info::Metadata, Input); 1]>> = None;
-
-    let resolved_items: SmallVec<[(track_info::Metadata, Input); 1]> =
-        if let Some(tracks) = spotify_tracks {
-            if tracks.is_empty() {
-                ctx.reply(format!(
-                    "Invalid Spotify query '{query}'. Please try something else"
-                ))
-                .await?;
-                return Ok(());
-            }
-            tracks
-        } else if let Some(podcast) = ctx.data().radio_t_resolver.resolve(&query).await {
-            smallvec![(podcast.metadata().clone(), podcast.into())]
+    let (metadata, input): (track_info::Metadata, Input) =
+        if let Some(podcast) = ctx.data().radio_t_resolver.resolve(&query).await {
+            (podcast.metadata().clone(), podcast.into())
         } else if let Some(yt_dlp) = ctx.data().yt_dlp_resolver.resolve(&query).await {
-            smallvec![(yt_dlp.metadata().clone(), yt_dlp.into())]
+            (yt_dlp.metadata().clone(), yt_dlp.into())
         } else {
             ctx.reply(format!(
                 "Found nothing for '{query}'. Please try something else"
@@ -127,19 +102,19 @@ pub(crate) async fn play(ctx: Context<'_>, query: String) -> Result<(), anyhow::
 
     let vc = vc.await??;
     let mut vc = vc.lock().await;
-    for (metadata, input) in resolved_items {
-        // Attach description to the track handle so we can display each entry in the queue
-        let track = Track::new_with_data(
-            input,
-            Arc::new(track_info::TrackInfo::new(
-                metadata,
-                ctx.author().name.clone(),
-            )),
-        )
-        // Reduce volume to 50% to avoid ear damage for new users
-        .volume(0.5);
-        let _ = vc.enqueue(track).await;
-    }
+
+    // Attach description to the track handle so we can display each entry in the queue
+    let track = Track::new_with_data(
+        input,
+        Arc::new(track_info::TrackInfo::new(
+            metadata,
+            ctx.author().name.clone(),
+        )),
+    )
+    // Reduce volume to 50% to avoid ear damage for new users
+    .volume(0.5);
+    let _ = vc.enqueue(track).await;
+
     let queue_info = form_currently_played(&vc.queue().current_queue()).await;
     drop(vc);
 
@@ -195,34 +170,6 @@ pub(crate) async fn stop(ctx: Context<'_>) -> Result<(), anyhow::Error> {
     };
 
     ctx.reply("Stopped playing and cleared the queue").await?;
-    Ok(())
-}
-
-/// Connect Spotify account to be used by bot.
-/// https://www.spotify.com/us/account/set-device-password/
-#[poise::command(guild_only, slash_command)]
-#[cfg(feature = "spotify")]
-pub(crate) async fn connect_spotify(
-    ctx: Context<'_>,
-    username: String,
-    password: String,
-) -> Result<(), anyhow::Error> {
-    let guild_id = ctx.guild().unwrap().id;
-
-    let result = ctx
-        .data()
-        .spotify_resolver
-        .connect(guild_id, username, password)
-        .await;
-    let reply = if let Err(err) = result {
-        format!("Failed to connect Spotify account: {err:#}.")
-    } else {
-        "Spotify account connected successfully.".into()
-    };
-
-    // Show reply only to user who invoked the command to avoid credentials leakage
-    ctx.send(CreateReply::default().content(reply).ephemeral(true))
-        .await?;
     Ok(())
 }
 

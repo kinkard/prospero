@@ -90,13 +90,15 @@ pub(crate) async fn voice_state_update(
 
 /// Invoked when bot joined a new voice channel
 async fn bot_joined_vc(ctx: &Context, _data: &Data, guild_id: GuildId, channel_id: ChannelId) {
-    info!(
-        "Joined '{}' vc in '{}' guild",
-        &ctx.cache.channel(channel_id).unwrap().name,
-        &ctx.cache.guild(guild_id).unwrap().name,
-    );
-
     setup_vc(ctx, guild_id).await;
+
+    let guild = ctx.cache.guild(guild_id).unwrap();
+    let channel_name = guild
+        .channels
+        .get(&channel_id)
+        .map(|channel| channel.name.as_str())
+        .unwrap_or("Unknown");
+    info!("Joined '{}' vc in '{}' guild", channel_name, &guild.name);
 }
 
 /// Invoked when bot changed voice channel either because someone moved it or it moved itself
@@ -107,14 +109,24 @@ async fn bot_changed_vc(
     from: ChannelId,
     to: ChannelId,
 ) {
+    setup_vc(ctx, guild_id).await;
+
+    let guild = ctx.cache.guild(guild_id).unwrap();
+    let from_channel_name = guild
+        .channels
+        .get(&from)
+        .map(|channel| channel.name.as_str())
+        .unwrap_or("Unknown");
+    let to_channel_name = guild
+        .channels
+        .get(&to)
+        .map(|channel| channel.name.as_str())
+        .unwrap_or("Unknown");
+
     info!(
         "Moved from '{}' vc to '{}' vc in '{}' guild",
-        &ctx.cache.channel(from).unwrap().name,
-        &ctx.cache.channel(to).unwrap().name,
-        &ctx.cache.guild(guild_id).unwrap().name,
+        from_channel_name, to_channel_name, &guild.name,
     );
-
-    setup_vc(ctx, guild_id).await;
 }
 
 /// Invoked when bot left voice channel
@@ -123,9 +135,6 @@ async fn bot_left_vc(ctx: &Context, _data: &Data, guild_id: GuildId) {
         "Left voice chat in '{}' guild",
         &ctx.cache.guild(guild_id).unwrap().name
     );
-
-    #[cfg(feature = "spotify")]
-    _data.spotify_resolver.disconnect(guild_id).await;
 }
 
 /// Invoked when user joined a voice channel

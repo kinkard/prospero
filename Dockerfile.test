@@ -9,9 +9,15 @@ WORKDIR /usr/src/app
 COPY Cargo.toml Cargo.lock ./
 RUN mkdir src && echo 'fn main() { println!("Dummy image called!"); }' > src/main.rs
 RUN cargo build
+RUN rm -rf src
 
 # Now run tests
 COPY src ./src
-# Update modified attribute as otherwise cargo won't rebuild it
-RUN touch -a -m ./src/main.rs
+RUN cargo build
+
+# Check formatting before building to avoid unnecessary rebuilds
+RUN cargo fmt --all -- --check
+
+RUN cargo clippy -- -Dwarnings
+
 RUN cargo test
