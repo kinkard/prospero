@@ -2,7 +2,6 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::ErrorKind;
 use std::str::FromStr;
-use std::sync::Arc;
 
 use async_trait::async_trait;
 use reqwest::{
@@ -160,17 +159,6 @@ pub(crate) struct YtDlpOutput {
     webpage_url: Option<String>,
 }
 
-/// Query cache for yt-dlp that helps to reduce time spent on searching YouTube
-pub(crate) trait QueryCache: Send + Sync {
-    /// Saves found webpage_url for the query
-    fn save(&self, query: &str, webpage_url: &str) -> Result<(), anyhow::Error>;
-    /// Loads found webpage_url for the query if it is known
-    fn load(&self, query: &str) -> Option<String>;
-    /// Returns all known webpage_urls
-    #[allow(unused)]
-    fn load_all(&self) -> Vec<String>;
-}
-
 #[derive(Clone)]
 struct CacheEntry {
     loaded_at: std::time::Instant,
@@ -178,9 +166,9 @@ struct CacheEntry {
 }
 
 pub(crate) struct Resolver {
-    /// Query to webpage_url cache to speed up the yt-dlp queries
-    query_cache: Arc<dyn QueryCache>,
-    /// Recently fetched yt-dlp instances
+    /// Search query to webpage_url mapping to skip YouTube search on repeat queries
+    query_to_url: RwLock<HashMap<String, String>>,
+    /// Recently fetched yt-dlp instances keyed by webpage_url
     cache: RwLock<HashMap<String, CacheEntry>>,
 
     http_client: reqwest::Client,
@@ -189,10 +177,9 @@ pub(crate) struct Resolver {
 impl Resolver {
     const CACHE_EXPIRATION: std::time::Duration = std::time::Duration::from_secs(60 * 60);
 
-    /// Creates a new yt-dlp resolver with a cache file
-    pub(crate) fn new(http_client: reqwest::Client, cache: Arc<dyn QueryCache>) -> Self {
+    pub(crate) fn new(http_client: reqwest::Client) -> Self {
         Self {
-            query_cache: cache,
+            query_to_url: RwLock::new(HashMap::new()),
             http_client,
             cache: RwLock::new(HashMap::new()),
         }
@@ -200,9 +187,9 @@ impl Resolver {
 
     /// Resolves a query to a yt-dlp instance, caching the result
     pub(crate) async fn resolve(&self, query: &str) -> Option<YtDlp> {
-        // For non-URL queries, check the cache first
+        // For non-URL queries, check if we already know the webpage URL
         let query = if !query.starts_with("http") {
-            if let Some(webpage_url) = self.query_cache.load(query) {
+            if let Some(webpage_url) = self.query_to_url.read().await.get(query).cloned() {
                 Cow::from(webpage_url)
             } else {
                 Cow::from(query)
@@ -222,14 +209,12 @@ impl Resolver {
             _ => {
                 let yt_dlp = Self::fetch(self.http_client.clone(), query.as_ref()).await?;
 
-                // Save the query to webpage_url mapping if it was not a URL query
+                // Save the query to webpage_url mapping if it was a search query
                 if !query.starts_with("http") {
-                    if let Err(err) = self
-                        .query_cache
-                        .save(query.as_ref(), &yt_dlp.metadata.source_url)
-                    {
-                        warn!("Failed to save yt-dlp query '{query}' to cache: {err}");
-                    }
+                    self.query_to_url.write().await.insert(
+                        query.into_owned(),
+                        yt_dlp.metadata.source_url.clone().into(),
+                    );
                 }
 
                 self.cache.write().await.insert(

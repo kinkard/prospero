@@ -9,7 +9,6 @@ use tracing::{info, warn};
 
 mod commands;
 mod events;
-mod storage;
 mod track_info;
 mod yt_dlp;
 
@@ -27,18 +26,9 @@ async fn main() {
         info!("Skipping .env file because of {err}");
     }
 
-    let data_dir = env::var("DATA_DIR").expect("Expected path to DATA in the environment");
-    let data_dir = std::path::PathBuf::from(data_dir);
-    if !data_dir.exists() {
-        std::fs::create_dir_all(&data_dir).expect("Failed to create yt-dlp cache directory");
-    }
-
-    let storage =
-        storage::Storage::new(data_dir.join("db.sqlite")).expect("Failed to create storage");
-
     let http_client = reqwest::Client::new();
     let bot_data = Data {
-        yt_dlp_resolver: yt_dlp::Resolver::new(http_client.clone(), storage),
+        yt_dlp_resolver: yt_dlp::Resolver::new(http_client.clone()),
     };
 
     // Configure the client with your Discord bot token in the environment.
