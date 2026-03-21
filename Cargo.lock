@@ -2468,7 +2468,6 @@ dependencies = [
  "anyhow",
  "async-trait",
  "dotenv",
- "futures",
  "poise",
  "pretty_assertions",
  "reqwest",

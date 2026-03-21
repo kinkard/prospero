@@ -9,16 +9,15 @@ authors = ["Stepan Kizim <stsiapan.kizim@gmail.com>"]
 
 [profile.release]
 strip = true
-lto = "thin"
+lto = true
 
 [dependencies]
 # General
 anyhow = "1"
 dotenv = "0.15"
-futures = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread"] }
-tracing = "0.1"
-tracing-subscriber = "0.3"
+tracing = { version = "0.1", default-features = false }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "ansi"] }
 # Discord dependencies
 async-trait = "0.1"
 poise = "0.6"
