@@ -190,7 +190,12 @@ pub(crate) async fn volume(
         }
     }
 
-    ctx.reply(format!("Volume set to {level}/10")).await?;
+    ctx.send(
+        CreateReply::default()
+            .content(format!("Volume set to {level}/10"))
+            .ephemeral(true),
+    )
+    .await?;
     Ok(())
 }
 
