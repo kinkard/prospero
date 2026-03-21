@@ -21,8 +21,9 @@ tracing-subscriber = { version = "0.3", default-features = false, features = ["f
 # Discord dependencies
 async-trait = "0.1"
 poise = "0.6"
-serenity = { version = "0.12", default-features = true, features = [
-  "cache", "voice", "rustls_backend", "builder"
+serenity = { version = "0.12", default-features = false, features = [
+  "builder", "cache", "client", "gateway", "http", "model",
+  "voice", "rustls_backend", "utils", "framework"
 ] }
 songbird = { version = "0.5", features = ["builtin-queue"] }
 symphonia = { version = "0.5", default-features = false, features = [
