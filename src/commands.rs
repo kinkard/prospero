@@ -88,9 +88,7 @@ pub(crate) async fn play(ctx: Context<'_>, query: String) -> Result<(), anyhow::
     let _ = ctx.reply(format!("Processing {query}...")).await;
 
     let (metadata, input): (track_info::Metadata, Input) =
-        if let Some(podcast) = ctx.data().radio_t_resolver.resolve(&query).await {
-            (podcast.metadata().clone(), podcast.into())
-        } else if let Some(yt_dlp) = ctx.data().yt_dlp_resolver.resolve(&query).await {
+        if let Some(yt_dlp) = ctx.data().yt_dlp_resolver.resolve(&query).await {
             (yt_dlp.metadata().clone(), yt_dlp.into())
         } else {
             ctx.reply(format!(
