@@ -6,7 +6,7 @@ use serenity::builder::{CreateEmbed, CreateMessage};
 use songbird::{input::Input, tracks::Track};
 use tracing::info;
 
-use crate::{Context, track_info};
+use crate::{Context, DEFAULT_VOLUME, track_info, volume_to_amplitude};
 
 fn get_author_vc(ctx: &Context<'_>) -> Option<serenity::model::id::ChannelId> {
     ctx.guild()?
@@ -108,8 +108,15 @@ pub(crate) async fn play(ctx: Context<'_>, query: String) -> Result<(), anyhow::
             ctx.author().name.clone(),
         )),
     )
-    // Reduce volume to 50% to avoid ear damage for new users
-    .volume(0.5);
+    .volume(volume_to_amplitude(
+        ctx.data()
+            .guild_volumes
+            .read()
+            .unwrap()
+            .get(&guild_id)
+            .copied()
+            .unwrap_or(DEFAULT_VOLUME),
+    ));
     let _ = vc.enqueue(track).await;
 
     let queue_info = form_currently_played(&vc.queue().current_queue()).await;
@@ -149,6 +156,41 @@ pub(crate) async fn skip(ctx: Context<'_>) -> Result<(), anyhow::Error> {
     drop(vc);
 
     ctx.send(CreateReply::default().embed(queue_info)).await?;
+    Ok(())
+}
+
+/// Set playback volume (0-10, default 5)
+#[poise::command(guild_only, slash_command)]
+pub(crate) async fn volume(
+    ctx: Context<'_>,
+    #[description = "Volume level (0-10)"]
+    #[min = 0]
+    #[max = 10]
+    level: u8,
+) -> Result<(), anyhow::Error> {
+    let guild_id = ctx.guild().unwrap().id;
+
+    ctx.data()
+        .guild_volumes
+        .write()
+        .unwrap()
+        .insert(guild_id, level);
+
+    let amplitude = volume_to_amplitude(level);
+
+    // Apply to all currently queued tracks
+    let songbird = songbird::get(ctx.serenity_context())
+        .await
+        .expect("Songbird Voice client placed in at initialisation.");
+
+    if let Some(vc) = songbird.get(guild_id) {
+        let vc = vc.lock().await;
+        for track in vc.queue().current_queue() {
+            let _ = track.set_volume(amplitude);
+        }
+    }
+
+    ctx.reply(format!("Volume set to {level}/10")).await?;
     Ok(())
 }
 
