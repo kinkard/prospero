@@ -70,8 +70,9 @@ async fn main() {
                 commands::stop(),
                 commands::volume(),
             ],
-            event_handler: |ctx, event, _framework, data| {
+            event_handler: |framework, event| {
                 Box::pin(async move {
+                    let (ctx, data) = (framework.serenity_context, framework.user_data);
                     match event {
                         FullEvent::CacheReady { guilds } => {
                             events::cache_ready(ctx, data, guilds).await;

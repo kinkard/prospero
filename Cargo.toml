@@ -20,12 +20,12 @@ tracing = { version = "0.1", default-features = false }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "ansi"] }
 # Discord dependencies
 async-trait = "0.1"
-poise = "0.6"
+poise = "0.7"
 serenity = { version = "0.12", default-features = false, features = [
   "builder", "cache", "client", "gateway", "http", "model",
   "voice", "rustls_backend", "utils", "framework"
 ] }
-songbird = { version = "0.5", features = ["builtin-queue"] }
+songbird = { version = "0.6", features = ["builtin-queue"] }
 symphonia = { version = "0.5", default-features = false, features = [
   "pcm", "mkv", "wav", "mp3"
 ] }
@@ -33,11 +33,6 @@ symphonia = { version = "0.5", default-features = false, features = [
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-
-# Use songbird fork with DAVE (Discord Audio/Video E2EE) support
-# until https://github.com/serenity-rs/songbird/pull/291 is merged
-[patch.crates-io]
-songbird = { git = "https://github.com/beerpsi-forks/songbird", branch = "davey" }
 
 [dev-dependencies]
 pretty_assertions = "1"
