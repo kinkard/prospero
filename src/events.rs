@@ -137,6 +137,7 @@ async fn bot_left_vc(ctx: &Context, _data: &Data, guild_id: GuildId) {
     );
 }
 
+/// Invoked when user joined a voice channel
 async fn user_joined_vc(_ctx: &Context, _data: &Data, _guild_id: GuildId, _channel_id: ChannelId) {}
 
 /// Invoked when user changed voice channel

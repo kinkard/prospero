@@ -1,7 +1,10 @@
 FROM rust:alpine3.22 AS builder
 
 # Dependencies for some crates
-RUN apk add --no-cache alpine-sdk cmake
+RUN apk add --no-cache alpine-sdk cmake python3-dev
+
+# Embedded Python loads stdlib C modules via dlopen, which a static musl binary can't do
+ENV RUSTFLAGS="-C target-feature=-crt-static"
 
 RUN rustup component add rustfmt clippy
 
